@@ -1,0 +1,8 @@
+{
+  "name": "Copy of FootyFinder",
+  "description": "A two-sided marketplace connecting soccer players in South Africa with field owners.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
