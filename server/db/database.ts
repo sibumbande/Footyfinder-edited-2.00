@@ -128,6 +128,20 @@ async function initDatabase(): Promise<Database> {
       "ALTER TABLE practice_sessions ADD COLUMN slots_count INTEGER NOT NULL DEFAULT 1",
       "ALTER TABLE practice_sessions ADD COLUMN timetable_ids TEXT",
       "ALTER TABLE teams ADD COLUMN team_layout TEXT",
+      "ALTER TABLE teams ADD COLUMN is_recruiting INTEGER NOT NULL DEFAULT 0",
+      `CREATE TABLE IF NOT EXISTS team_join_requests (
+        id TEXT PRIMARY KEY,
+        team_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'JOIN_REQUEST' CHECK (type IN ('JOIN_REQUEST','CAPTAIN_INVITE')),
+        status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','ACCEPTED','DECLINED')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (team_id, user_id),
+        FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+      )`,
+      "ALTER TABLE team_join_requests ADD COLUMN type TEXT NOT NULL DEFAULT 'JOIN_REQUEST'",
+      "ALTER TABLE teams ADD COLUMN motto TEXT",
     ];
     for (const m of migrations) {
       try { db.exec(m); } catch { /* Column already exists — ignore */ }

@@ -208,7 +208,7 @@ router.get('/:id', (req, res: Response) => {
     const db = getDb();
 
     const user = db.prepare(
-      `SELECT id, username, full_name, avatar_url, position, fitness_level, city
+      `SELECT id, username, full_name, avatar_url, position, fitness_level, city, bio
        FROM users WHERE id = ?`
     ).get(id) as Record<string, any> | undefined;
 
@@ -226,6 +226,7 @@ router.get('/:id', (req, res: Response) => {
         position: user.position,
         fitnessLevel: user.fitness_level,
         city: user.city,
+        bio: user.bio,
       },
     });
   } catch (err: any) {

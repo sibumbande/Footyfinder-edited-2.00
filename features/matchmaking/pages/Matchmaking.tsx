@@ -396,7 +396,7 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
           date: selectedLobby.date,
           timeSlot: selectedLobby.startTime,
           intensity: selectedLobby.intensity || 'Casual',
-          maxPlayers: 10,
+          maxPlayers: 22,
           feePerPlayer: 50,
         });
         console.log('[Matchmaking] Lobby created in DB:', res.lobby.id, 'status:', res.lobby.status);

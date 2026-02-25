@@ -2,7 +2,7 @@
 
 export { api, ApiError } from './client';
 export { register, login, logout, getToken, isLoggedIn } from './auth';
-export { createTeam, getMyTeam, getTeamById, joinTeam, leaveTeam, updateTeam, contributeToTeam, saveTeamLayout } from './teams';
+export { createTeam, getMyTeam, getTeamById, joinTeam, leaveTeam, updateTeam, contributeToTeam, saveTeamLayout, getAllTeams, toggleTeamRecruiting, inviteToTeam, requestToJoinTeam, getTeamJoinRequests, respondToJoinRequest, getMyTeamInvites, respondToTeamInvite, getTeamTransactions } from './teams';
 export { getLobbies, getLobbyById, createLobby, joinLobby, payLobby, cancelLobby, leaveLobby, getLobbyMessages, sendLobbyMessage, getLobbyFormation, pickLobbyPosition, acceptLobbyChallenge } from './lobbies';
 export { loadFunds, getTransactions } from './payments';
 
@@ -35,6 +35,21 @@ export function completeMatch(data: {
 }
 
 // ── Users ───────────────────────────────────────────────────────────────────
+
+export function getUserById(id: string) {
+  return api.get<{
+    user: {
+      id: string;
+      username: string;
+      fullName: string;
+      avatarUrl: string | null;
+      position: string | null;
+      fitnessLevel: string | null;
+      city: string | null;
+      bio: string | null;
+    };
+  }>(`/users/${id}`);
+}
 
 export function getMe() {
   return api.get<{

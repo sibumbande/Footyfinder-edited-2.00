@@ -688,9 +688,10 @@ router.get('/:id/formation', (req: Request, res: Response) => {
 
     const formation = getFormationRows(id, db);
 
-    // For team lobbies, merge the host team's saved layout into HOME side
+    // For team lobbies, merge saved team layouts into HOME and AWAY sides
     // This fills name-only squad members (not real DB users) for visual display
     if (lobbyRow.team_id) {
+      // ── HOME: merge host team's saved layout ──────────────────────────────
       const teamRow = db.prepare('SELECT team_layout FROM teams WHERE id = ?').get(lobbyRow.team_id) as { team_layout: string | null } | undefined;
       if (teamRow?.team_layout) {
         try {
@@ -714,6 +715,45 @@ router.get('/:id/formation', (req: Request, res: Response) => {
           formation.home.sort((a, b) => a.positionIndex - b.positionIndex);
         } catch {
           // Malformed JSON — skip layout merge
+        }
+      }
+
+      // ── AWAY: merge challenger team's saved layout ────────────────────────
+      // Find the challenger team by looking up the first real AWAY user's team membership
+      const firstAwayUser = db.prepare(
+        "SELECT user_id FROM lobby_positions WHERE lobby_id = ? AND team_side = 'AWAY' LIMIT 1"
+      ).get(id) as { user_id: string } | undefined;
+
+      if (firstAwayUser) {
+        const challengerTeamRow = db.prepare(
+          `SELECT team_id FROM team_members WHERE user_id = ? AND team_id != ? LIMIT 1`
+        ).get(firstAwayUser.user_id, lobbyRow.team_id) as { team_id: string } | undefined;
+
+        if (challengerTeamRow) {
+          const challengerTeamData = db.prepare('SELECT team_layout FROM teams WHERE id = ?').get(challengerTeamRow.team_id) as { team_layout: string | null } | undefined;
+          if (challengerTeamData?.team_layout) {
+            try {
+              const layout = JSON.parse(challengerTeamData.team_layout) as Record<string, string>;
+              const occupiedAwayIndices = new Set(formation.away.map(p => p.positionIndex));
+
+              for (const [slotId, playerName] of Object.entries(layout)) {
+                if (!playerName) continue;
+                const idx = AWAY_SLOT_TO_INDEX[slotId];
+                if (idx === undefined || occupiedAwayIndices.has(idx)) continue;
+
+                formation.away.push({
+                  positionIndex: idx,
+                  positionOnField: AWAY_LABELS[idx],
+                  user: { id: `layout-away-${slotId}`, username: playerName, fullName: playerName, avatarUrl: null },
+                });
+                occupiedAwayIndices.add(idx);
+              }
+
+              formation.away.sort((a, b) => a.positionIndex - b.positionIndex);
+            } catch {
+              // Malformed JSON — skip layout merge
+            }
+          }
         }
       }
     }

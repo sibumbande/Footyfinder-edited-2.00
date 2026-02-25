@@ -88,9 +88,27 @@ CREATE TABLE IF NOT EXISTS teams (
     primary_color   TEXT,
     secondary_color TEXT,
     logo_url        TEXT,
+    is_recruiting   INTEGER NOT NULL DEFAULT 0,
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
 
     FOREIGN KEY (captain_id) REFERENCES users (id) ON DELETE RESTRICT
+);
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 4b. team_join_requests
+-- Players request to join a team; captain accepts or declines.
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS team_join_requests (
+    id         TEXT PRIMARY KEY,
+    team_id    TEXT NOT NULL,
+    user_id    TEXT NOT NULL,
+    type       TEXT NOT NULL DEFAULT 'JOIN_REQUEST' CHECK (type IN ('JOIN_REQUEST', 'CAPTAIN_INVITE')),
+    status     TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'ACCEPTED', 'DECLINED')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+
+    UNIQUE (team_id, user_id),
+    FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
 -- ────────────────────────────────────────────────────────────────────────────

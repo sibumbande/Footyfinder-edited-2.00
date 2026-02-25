@@ -10,7 +10,7 @@ import { CaptainsDashboard, PlayerDashboard } from './features/dashboard';
 import { CreateTeam, TeamProfile } from './features/team';
 import { Social } from './features/social';
 import { Navigation } from './components/shared/ui/Navigation';
-import { MatchLobby, MatchRecord, UserProfileData, UserWallet, FitnessLevel, PlayerPosition, TeamWallet, Team, SoccerProfile, PracticeSession, FieldListing } from './types';
+import { MatchLobby, MatchRecord, UserProfileData, UserWallet, PlayerPosition, TeamWallet, Team, SoccerProfile, PracticeSession, FieldListing } from './types';
 import { seedDatabase } from './services/seed';
 import { walletService } from './services';
 import { isLoggedIn as checkIsLoggedIn, logout as apiLogout, getMe, getMyTeam, contributeToTeam as apiContributeToTeam, getMyWallet, saveTeamLayout } from './frontend/api';
@@ -73,6 +73,25 @@ const App: React.FC = () => {
       const myRole = teamData.members.find(m => m.id === currentUserId)?.role;
       setUserRole(myRole === 'CAPTAIN' ? 'CAPTAIN' : 'PLAYER');
       setTeamWallet(prev => ({ ...prev, balance: teamData.wallet.balance }));
+
+      // Populate squadPool from real team members
+      const realSquad = teamData.members.map(m => ({
+        id: m.id,
+        name: m.fullName,
+        role: m.position || 'Player',
+        avatar: m.avatarUrl || undefined,
+      }));
+      setSquadPool(realSquad);
+
+      // Restore saved formation layout so all members see the captain's assignments
+      if (teamData.team.teamLayout) {
+        try {
+          const savedLayout = JSON.parse(teamData.team.teamLayout) as Record<string, string>;
+          setGeneralSquadAssigned(savedLayout);
+        } catch { setGeneralSquadAssigned({}); }
+      } else {
+        setGeneralSquadAssigned({});
+      }
     } catch {
       // No team or fetch failed — clear any stale team state
       setUserTeam(null);
@@ -123,32 +142,18 @@ const App: React.FC = () => {
   const [userTeam, setUserTeam] = useState<Team | null>(null);
 
   const [teamWallet, setTeamWallet] = useState<TeamWallet>({
-    balance: 1200,
-    contributions: [
-      { memberId: 'm1', name: 'Siya Kolisi', amount: 500 },
-      { memberId: 'm2', name: 'Thabo Mokoena', amount: 300 },
-      { memberId: 'm3', name: 'Bongi Mbonambi', amount: 400 },
-    ]
+    balance: 0,
+    contributions: [],
   });
 
   const [fields] = useState<FieldListing[]>(seedData.fields);
-  const [activeLobbies, setActiveLobbies] = useState<MatchLobby[]>(seedData.lobbies);
-  const [trainingSessions, setTrainingSessions] = useState<PracticeSession[]>(seedData.practiceSessions);
-  const [generalSquadAssigned, setGeneralSquadAssigned] = useState<Record<string, string>>({
-    'st1': 'Siya Kolisi',
-    'cm1': 'Thabo Mokoena',
-    'cb1': 'Bongi Mbonambi',
-  });
+  const [activeLobbies, setActiveLobbies] = useState<MatchLobby[]>([]);
+  const [trainingSessions, setTrainingSessions] = useState<PracticeSession[]>([]);
+  const [generalSquadAssigned, setGeneralSquadAssigned] = useState<Record<string, string>>({});
   const [generalSquadPoints, setGeneralSquadPoints] = useState(DEFAULT_POINTS);
-  const [squadPool, setSquadPool] = useState(seedData.squadPool);
+  const [squadPool, setSquadPool] = useState<{ id: string; name: string; role: string; avatar?: string }[]>([]);
 
-  const [teamMessages, setTeamMessages] = useState<any[]>(seedData.captainMessages.map(m => ({
-    id: m.id,
-    senderId: m.senderId,
-    senderName: m.senderName,
-    text: m.text,
-    timestamp: m.timestamp
-  })));
+  const [teamMessages, setTeamMessages] = useState<any[]>([]);
 
   const navigate = (page: any, params?: any) => {
     if (page === 'matchmaking') {
@@ -159,6 +164,13 @@ const App: React.FC = () => {
     setCurrentPage(page);
     window.scrollTo(0, 0);
   };
+
+  // Refresh team data whenever the user lands on the dashboard (e.g. after User B accepts a captain invite)
+  useEffect(() => {
+    if (currentPage === 'dashboard' && isLoggedIn && userProfile.id) {
+      fetchAndSetTeam(userProfile.id);
+    }
+  }, [currentPage, isLoggedIn, userProfile.id]);
 
   const applyAuthUser = (user: { id: string; email?: string; username?: string; fullName: string; position: string | null; fitnessLevel: string | null; city?: string | null }) => {
     setUserProfile(prev => ({
@@ -193,6 +205,9 @@ const App: React.FC = () => {
     }));
     setTeamWallet({ balance: 0, contributions: [] });
     setMatchHistory([]);
+    setSquadPool([]);
+    setGeneralSquadAssigned({});
+    setTeamMessages([]);
     navigate('login');
   };
 
@@ -409,7 +424,11 @@ const App: React.FC = () => {
             friends={userProfile.friends}
             onAddFriend={handleAddFriend}
             onRemoveFriend={handleRemoveFriend}
-            allProfiles={seedData.profiles}
+            allProfiles={[]}
+            userRole={userRole}
+            userTeam={userTeam ? { id: userTeam.id, name: userTeam.name } : null}
+            userId={userProfile.id}
+            onTeamRefresh={() => fetchAndSetTeam(userProfile.id)}
           />
         );
       case 'dashboard':

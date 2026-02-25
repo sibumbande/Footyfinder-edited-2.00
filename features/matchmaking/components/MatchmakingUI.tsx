@@ -167,7 +167,7 @@ export const MatchmakingUI: React.FC<MatchmakingUIProps> = ({
     };
 
     // ── STEP 5: COMPLETED SUMMARY ──
-    if (teamDetailView === 'completed' && isTeamConfirmed) {
+    if (teamDetailView === 'completed') {
       return (
         <div className="min-h-screen bg-slate-50 pb-24 animate-fade-in font-inter">
           <div className="max-w-2xl mx-auto px-4 py-12 space-y-8">
@@ -226,7 +226,7 @@ export const MatchmakingUI: React.FC<MatchmakingUIProps> = ({
     }
 
     // ── STEP 4: REPORT RESULTS FORM ──
-    if (teamDetailView === 'reporting' && isTeamConfirmed) {
+    if (teamDetailView === 'reporting') {
       return (
         <div className="min-h-screen bg-slate-50 pb-24 animate-fade-in font-inter">
           <div className="max-w-2xl mx-auto px-4 py-12 space-y-8">
@@ -470,7 +470,7 @@ export const MatchmakingUI: React.FC<MatchmakingUIProps> = ({
                  />
 
                  {/* Report Results Button */}
-                 {isTeamConfirmed && (
+                 {(isTeamConfirmed || selectedLobby.createdBy === currentUserId) && (
                    <div className="bg-white rounded-[48px] p-8 border border-slate-100 shadow-xl">
                       <button
                         onClick={() => setTeamDetailView('reporting')}

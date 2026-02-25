@@ -60,6 +60,8 @@ export interface Team {
   awayColor: string;
   members: SoccerProfile[];
   wallet: TeamWallet;
+  motto?: string;
+  createdAt?: string;
 }
 
 export interface SoccerProfile {
@@ -116,6 +118,10 @@ export interface UserProfileData {
   stats: PlayerStats;
   avatar: string;
   friends: SoccerProfile[];
+  bio?: string;
+  city?: string;
+  phone?: string;
+  username?: string;
 }
 
 export interface FieldListing {
