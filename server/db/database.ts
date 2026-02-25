@@ -127,6 +127,7 @@ async function initDatabase(): Promise<Database> {
     const migrations = [
       "ALTER TABLE practice_sessions ADD COLUMN slots_count INTEGER NOT NULL DEFAULT 1",
       "ALTER TABLE practice_sessions ADD COLUMN timetable_ids TEXT",
+      "ALTER TABLE teams ADD COLUMN team_layout TEXT",
     ];
     for (const m of migrations) {
       try { db.exec(m); } catch { /* Column already exists — ignore */ }

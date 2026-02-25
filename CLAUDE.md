@@ -281,6 +281,35 @@ All TypeScript types defined in `types.ts`:
 - Captains can create lobbies and manage formations using TacticalPitch component
 - Team chat for coordination
 
+### Formation System (Team vs Team Matchmaking)
+
+The captain's team formation is displayed on the Teams page and persists to team matchmaking:
+
+**Frontend Flow:**
+- `App.tsx` maintains `generalSquadAssigned` (Record<slotId → playerName>) and `generalSquadPoints` (Formation positions)
+- `DEFAULT_POINTS` defines 11 slot IDs: `gk`, `lb`, `cb1`, `cb2`, `rb`, `lm`, `cm1`, `cm2`, `rm`, `st1`, `st2` (4-2-3-1 formation)
+- Captain clicks "Save Layout" on CaptainsDashboard → calls `handleSaveTeamLayout()` → `POST /api/teams/:teamId/save-layout`
+
+**Backend Persistence:**
+- New column: `teams.team_layout TEXT` stores JSON: `{ "st1": "Siya Kolisi", "cm1": "Thabo Mokoena", ... }`
+- Migration in `server/db/database.ts` auto-creates column on existing DBs
+- `POST /api/teams/:id/save-layout` validates captain, saves layout as JSON, persists to DB
+
+**Matchmaking Display:**
+- When captain hosts Teams vs Teams, lobby is created with `teamId` parameter
+- `fillTeamPositions()` queries `team_members` DB and fills real users' positions (only the captain is guaranteed to be in DB as a real user)
+- `GET /api/lobbies/:id/formation` merges:
+  - Real positions from `lobby_positions` table (real user IDs only)
+  - Saved formation from `teams.team_layout` JSON (name-only entries, virtual IDs like `layout-st1`)
+  - Returns combined result with `user: { fullName: "playerName", ... }` for display
+- Frontend `TacticalPitch` renders both real users and layout entries identically (by player name)
+
+**Key Implementation Details:**
+- Slot IDs must match between Teams page (`DEFAULT_POINTS`) and lobbies (`HOME_SLOT_TO_INDEX`) for roundtrip to work
+- `HOME_SLOT_TO_INDEX` mapping: `gk→0, lb→1, cb1→2, cb2→3, rb→4, lm→5, cm1→6, cm2→7, rm→8, st1→9, st2→10`
+- `AWAY_SLOT_TO_INDEX` is mirrored: `st1→0, st2→1, lm→2, cm1→3, cm2→4, rm→5, lb→6, cb1→7, cb2→8, rb→9, gk→10`
+- Formation names are virtual (not real user accounts) — only the DB user IDs in `team_members` are enforced by FK constraint
+
 ### Wallet System
 - **Personal wallet**: Individual player funds, loaded via Profile page modal
 - **Escrow**: Funds held for pending matches (visible on Profile wallet tab)
@@ -341,6 +370,38 @@ TypeScript path alias `@/*` maps to root directory (configured in tsconfig.json 
 3. Select friends as team members
 4. Set team name and colors
 5. `handleCreateTeam()` in App.tsx creates team and switches role to CAPTAIN
+
+### Teams vs Teams Formation Fixes (v2.1)
+
+Three issues were fixed to enable captain's full team formation display in team matches:
+
+1. **Host's team formation now loads on matchmaking pitch**
+   - `DEFAULT_POINTS` slot IDs were misaligned with server `HOME_SLOT_TO_INDEX` mapping
+   - Changed Teams page slot IDs from `cdm`, `lw`, `st`, `rw` → `lm`, `cm2`, `st1`, `st2`
+   - This aligns with the 11-position 4-2-3-1 formation: GK, LB, CB, CB, RB, LM, CM, CM, RM, ST, ST
+   - Formation now persists via "Save Layout" → `POST /api/teams/:id/save-layout` → `teams.team_layout` JSON
+
+2. **Host no longer sees "Accept Challenge" on own match**
+   - Added `createdBy: string` to `MatchLobby` type (maps from `lobbies.created_by` column)
+   - `MatchmakingUI` checks `selectedLobby.createdBy === currentUserId` to show/hide challenge button
+   - Host sees "Waiting for Challenger..." instead, challenger captains see "Accept Challenge — R550"
+
+3. **Challenger's team auto-fills AWAY positions when accepting**
+   - Same `fillTeamPositions()` function used for both HOME (host team) and AWAY (challenger team)
+   - Uses `position_in_formation` mapping (though currently uses sequential fallback since positions saved to DB)
+   - `GET /api/lobbies/:id/formation` merges real DB users + saved layout entries from `teams.team_layout`
+   - Both host and challenger formations display even with only captain as real DB user
+
+**Files Modified:**
+- `App.tsx`: Updated `DEFAULT_POINTS` slot IDs, added `handleSaveTeamLayout()`, wired `onSave` to CaptainsDashboard
+- `types.ts`: Added `createdBy?: string` to `MatchLobby`
+- `server/db/database.ts`: Added migration for `teams.team_layout TEXT` column
+- `server/routes/teams.ts`: Added `POST /:id/save-layout` endpoint
+- `server/routes/lobbies.ts`: Updated `GET /:id/formation` to merge saved layout with DB positions
+- `frontend/api/teams.ts`: Added `saveTeamLayout()` function
+- `features/dashboard/pages/CaptainsDashboard.tsx`: Added `onSave?: () => void` to props
+- `features/matchmaking/pages/Matchmaking.tsx`: Map `createdBy` in lobby list fetch, pass to UI
+- `features/matchmaking/components/MatchmakingUI.tsx`: Added `currentUserId` prop, check for host visibility of accept button
 
 ### Backend Migration Path
 When implementing the server:

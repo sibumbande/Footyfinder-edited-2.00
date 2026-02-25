@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { LobbyMessage, MatchLobby, MatchIntensity, TeamWallet, UserProfileData, FieldListing } from '../../../types';
 import { MatchmakingUI } from '../components/MatchmakingUI';
-import { getLobbies, createLobby as apiCreateLobby, joinLobby as apiJoinLobby, payLobby as apiPayLobby, getMyWallet, getLobbyMessages, sendLobbyMessage, ApiError } from '../../../frontend/api';
+import { getLobbies, createLobby as apiCreateLobby, joinLobby as apiJoinLobby, payLobby as apiPayLobby, getMyWallet, getFields, getLobbyMessages, sendLobbyMessage, getLobbyFormation, pickLobbyPosition, acceptLobbyChallenge, completeMatch, ApiError } from '../../../frontend/api';
 
 type MatchMode = 'QUICK_PLAY' | 'TEAM_VS_TEAM';
 
@@ -33,7 +33,35 @@ const FULL_SQUAD_LAYOUT = [
   { id: 'b-gk', label: 'GK', x: 50, y: 98, team: 'B' as const },
 ];
 
-const MOCK_NAMES = ['Junior M.', 'Ace K.', 'Mandla Z.', 'Thabo L.', 'George S.', 'Percy T.', 'Teko M.', 'Lucas R.', 'Mark F.'];
+// Maps FULL_SQUAD_LAYOUT position IDs to formation API params
+const POSITION_INFO: Record<string, { teamSide: 'HOME' | 'AWAY'; positionIndex: number; label: string }> = {
+  'a-gk':  { teamSide: 'HOME', positionIndex: 0,  label: 'GK' },
+  'a-lb':  { teamSide: 'HOME', positionIndex: 1,  label: 'LB' },
+  'a-cb1': { teamSide: 'HOME', positionIndex: 2,  label: 'CB' },
+  'a-cb2': { teamSide: 'HOME', positionIndex: 3,  label: 'CB' },
+  'a-rb':  { teamSide: 'HOME', positionIndex: 4,  label: 'RB' },
+  'a-lm':  { teamSide: 'HOME', positionIndex: 5,  label: 'LM' },
+  'a-cm1': { teamSide: 'HOME', positionIndex: 6,  label: 'CM' },
+  'a-cm2': { teamSide: 'HOME', positionIndex: 7,  label: 'CM' },
+  'a-rm':  { teamSide: 'HOME', positionIndex: 8,  label: 'RM' },
+  'a-st1': { teamSide: 'HOME', positionIndex: 9,  label: 'ST' },
+  'a-st2': { teamSide: 'HOME', positionIndex: 10, label: 'ST' },
+  'b-st1': { teamSide: 'AWAY', positionIndex: 0,  label: 'ST' },
+  'b-st2': { teamSide: 'AWAY', positionIndex: 1,  label: 'ST' },
+  'b-lm':  { teamSide: 'AWAY', positionIndex: 2,  label: 'LM' },
+  'b-cm1': { teamSide: 'AWAY', positionIndex: 3,  label: 'CM' },
+  'b-cm2': { teamSide: 'AWAY', positionIndex: 4,  label: 'CM' },
+  'b-rm':  { teamSide: 'AWAY', positionIndex: 5,  label: 'RM' },
+  'b-lb':  { teamSide: 'AWAY', positionIndex: 6,  label: 'LB' },
+  'b-cb1': { teamSide: 'AWAY', positionIndex: 7,  label: 'CB' },
+  'b-cb2': { teamSide: 'AWAY', positionIndex: 8,  label: 'CB' },
+  'b-rb':  { teamSide: 'AWAY', positionIndex: 9,  label: 'RB' },
+  'b-gk':  { teamSide: 'AWAY', positionIndex: 10, label: 'GK' },
+};
+
+// Reverse map: formation API index → FULL_SQUAD_LAYOUT position ID
+const HOME_IDS = ['a-gk', 'a-lb', 'a-cb1', 'a-cb2', 'a-rb', 'a-lm', 'a-cm1', 'a-cm2', 'a-rm', 'a-st1', 'a-st2'];
+const AWAY_IDS = ['b-st1', 'b-st2', 'b-lm', 'b-cm1', 'b-cm2', 'b-rm', 'b-lb', 'b-cb1', 'b-cb2', 'b-rb', 'b-gk'];
 
 interface MatchmakingProps {
   resetKey?: number;
@@ -49,6 +77,7 @@ interface MatchmakingProps {
   userProfile: UserProfileData;
   onUpdateUserWallet: (wallet: UserProfileData['wallet']) => void;
   fields: FieldListing[];
+  userTeam?: { id: string; name: string } | null;
 }
 
 export const Matchmaking: React.FC<MatchmakingProps> = ({
@@ -64,7 +93,8 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
   onDeductFromTeamWallet,
   userProfile,
   onUpdateUserWallet,
-  fields
+  fields,
+  userTeam,
 }) => {
   const [matchJoined, setMatchJoined] = useState(false);
   const [selectedLobby, setSelectedLobby] = useState<MatchLobby | null>(null);
@@ -78,15 +108,18 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentPendingId, setPaymentPendingId] = useState<string | null>(null);
   const [paymentStep, setPaymentStep] = useState<'IDLE' | 'PROCESSING' | 'SUCCESS'>('IDLE');
-  const [isMatchFinished, setIsMatchFinished] = useState(false);
   const [draftLobby, setDraftLobby] = useState<Partial<MatchLobby>>({});
   const [lobbiesLoading, setLobbiesLoading] = useState(false);
+  const [hostingFields, setHostingFields] = useState<any[]>([]);
+  const [challengerTeamName, setChallengerTeamName] = useState<string | undefined>();
   const chatPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const formationPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Clear chat polling on unmount
+  // Clear polling on unmount
   useEffect(() => {
     return () => {
       if (chatPollRef.current) clearInterval(chatPollRef.current);
+      if (formationPollRef.current) clearInterval(formationPollRef.current);
     };
   }, []);
 
@@ -115,6 +148,37 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
     }, 5000);
   }, [fetchChatMessages]);
 
+  // Load formation from API and update assignedPositions
+  const loadFormation = useCallback(async (lobbyId: string) => {
+    if (lobbyId.startsWith('l-')) {
+      setAssignedPositions({}); // local draft lobby — start empty
+      return;
+    }
+    try {
+      const data = await getLobbyFormation(lobbyId);
+      const positions: Record<string, string> = {};
+      data.home.forEach(p => {
+        const slotId = HOME_IDS[p.positionIndex];
+        if (slotId) positions[slotId] = p.user.fullName;
+      });
+      data.away.forEach(p => {
+        const slotId = AWAY_IDS[p.positionIndex];
+        if (slotId) positions[slotId] = p.user.fullName;
+      });
+      setAssignedPositions(positions);
+    } catch {
+      // Keep existing positions on error
+    }
+  }, []);
+
+  // Poll formation every 5 seconds
+  const startFormationPolling = useCallback((lobbyId: string) => {
+    if (formationPollRef.current) clearInterval(formationPollRef.current);
+    formationPollRef.current = setInterval(() => {
+      loadFormation(lobbyId);
+    }, 5000);
+  }, [loadFormation]);
+
   // Fetch lobbies from API on mount
   const fetchLobbies = useCallback(async () => {
     setLobbiesLoading(true);
@@ -126,6 +190,7 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
         fieldName: l.field.name,
         fieldId: l.field.id,
         location: l.field.location,
+        city: l.field.city,
         startTime: l.timeSlot,
         date: l.date,
         intensity: l.intensity as MatchIntensity,
@@ -135,7 +200,10 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
         price: l.feePerPlayer,
         duration: '1hr',
         isConfirmed: l.status === 'CONFIRMED',
-        isTeamMatch: false,
+        isTeamMatch: !!l.teamId,
+        teamId: l.teamId,
+        teamName: l.teamName,
+        createdBy: l.createdBy,
       }));
       onUpdateLobbies(mapped);
     } catch {
@@ -182,26 +250,32 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
   useEffect(() => {
     if (!selectedLobby || matchPhase === 'CONFIRMED') return;
 
+    const homeCount = Object.keys(assignedPositions).filter(k => k.startsWith('a-')).length;
+    const awayCount = Object.keys(assignedPositions).filter(k => k.startsWith('b-')).length;
+
     if (selectedLobby.isTeamMatch) {
-       if (selectedLobby.teamAFunded && selectedLobby.teamBFunded) {
-          handleFinalConfirmChallenge();
-       }
+      // Team match: both sides must have players
+      if (homeCount > 0 && awayCount > 0) {
+        handleFinalConfirmChallenge();
+      }
     } else {
-       if (Object.keys(assignedPositions).length === 22) {
-         handleFinalConfirmChallenge();
-       }
+      // Quick play: both sides full (11 each = 22 total)
+      if (homeCount === 11 && awayCount === 11) {
+        handleFinalConfirmChallenge();
+      }
     }
-  }, [assignedPositions, matchPhase, selectedLobby, activeLobbies]);
+  }, [assignedPositions, matchPhase, selectedLobby]);
 
   const enterLobby = async (lobby: MatchLobby, isHost: boolean = false, mode: MatchMode = 'QUICK_PLAY') => {
     console.log('[Matchmaking] enterLobby:', lobby.id, 'isHost:', isHost);
     setSelectedLobby(lobby);
     setMatchJoined(true);
     setMatchMode(mode);
+    setAssignedPositions({}); // Start empty — real data loads from API below
     setLobbyMessages([{ id: 'sys1', sender: 'Arena Bot', text: `Connected to ${lobby.fieldName}.`, time: 'Now', isMe: false }]);
 
-    // Try to join lobby via API (for existing lobbies)
-    if (!isHost && lobby.id && !lobby.id.startsWith('l-')) {
+    // Try to join lobby via API (for existing lobbies, quick play only)
+    if (!isHost && !lobby.isTeamMatch && lobby.id && !lobby.id.startsWith('l-')) {
       try {
         await apiJoinLobby(lobby.id);
       } catch {
@@ -209,41 +283,16 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
       }
     }
 
-    // Fetch existing chat messages and start polling
     if (lobby.id && !lobby.id.startsWith('l-')) {
+      // Load real formation from DB
+      await loadFormation(lobby.id);
+      startFormationPolling(lobby.id);
+      // Load chat history and start polling
       await fetchChatMessages(lobby.id);
       startChatPolling(lobby.id);
     }
 
-    if (lobby.isConfirmed) {
-      setMatchPhase('CONFIRMED');
-    } else {
-      setMatchPhase('RECRUITING');
-    }
-
-    const initialPositions: Record<string, string> = {};
-    if (lobby.isTeamMatch) {
-      if (lobby.teamAFunded || isHost) {
-        FULL_SQUAD_LAYOUT.filter(p => p.team === 'A').forEach(p => {
-           initialPositions[p.id] = isHost ? (savedSquadAssignments[p.id.replace('a-', '').replace('1', '').replace('2', '')] || 'HOST SQUAD') : 'HOST SQUAD';
-        });
-      }
-      if (lobby.teamBFunded) {
-        FULL_SQUAD_LAYOUT.filter(p => p.team === 'B').forEach(p => {
-           initialPositions[p.id] = 'CHALLENGER SQUAD';
-        });
-      }
-    } else {
-      if (isHost) {
-        initialPositions['a-gk'] = 'YOU';
-      } else {
-        const numFilled = Math.floor(Math.random() * 8) + 5;
-        FULL_SQUAD_LAYOUT.sort(() => 0.5 - Math.random()).slice(0, numFilled).forEach((pos, idx) => {
-          initialPositions[pos.id] = MOCK_NAMES[idx % MOCK_NAMES.length];
-        });
-      }
-    }
-    setAssignedPositions(initialPositions);
+    setMatchPhase(lobby.isConfirmed ? 'CONFIRMED' : 'RECRUITING');
   };
 
   const startHostingFlow = (mode: MatchMode) => {
@@ -253,6 +302,22 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
     }
     setMatchMode(mode);
     setIsCreating(true);
+
+    // Fetch real API fields so lobby creation uses DB field IDs
+    console.log('[Matchmaking] Fetching API fields for hosting...');
+    getFields().then(data => {
+      const mapped = data.fields.map(f => ({
+        id: f.id,
+        name: f.name,
+        location: f.location,
+        pricePerPlayer: f.pricePerSlot,
+      }));
+      console.log('[Matchmaking] API fields loaded:', mapped.length);
+      setHostingFields(mapped);
+    }).catch(err => {
+      console.warn('[Matchmaking] Failed to fetch API fields, using prop fields:', err);
+      setHostingFields([]);
+    });
   };
 
   const selectVenue = (field: any) => {
@@ -275,40 +340,15 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
     setIsSelectingDateTime(true);
   };
 
-  const selectDateTime = async (date: string, time: string) => {
-    // Try to create lobby via API
-    if (draftLobby.fieldId) {
-      try {
-        const res = await apiCreateLobby({
-          fieldId: draftLobby.fieldId,
-          date,
-          timeSlot: time,
-          intensity: 'Balanced',
-          maxPlayers: 22,
-          feePerPlayer: draftLobby.price || 50,
-        });
-
-        const fullLobby: MatchLobby = {
-          ...draftLobby,
-          id: res.lobby.id,
-          date,
-          startTime: time,
-        } as MatchLobby;
-
-        setIsSelectingDateTime(false);
-        enterLobby(fullLobby, true, matchMode);
-        fetchLobbies(); // Refresh lobby list
-        return;
-      } catch {
-        // Fall back to local lobby creation
-      }
-    }
-
+  const selectDateTime = (date: string, time: string) => {
+    // Create a local draft lobby — the API creation happens in handlePostMatch
     const fullLobby: MatchLobby = {
       ...draftLobby,
       id: `l-${Date.now()}`,
       date,
       startTime: time,
+      createdBy: userProfile.id,
+      teamName: matchMode === 'TEAM_VS_TEAM' ? userTeam?.name : undefined,
     } as MatchLobby;
     setIsSelectingDateTime(false);
     enterLobby(fullLobby, true, matchMode);
@@ -316,63 +356,88 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
 
   const handlePostMatch = async () => {
     if (!selectedLobby) return;
-    console.log('[Matchmaking] handlePostMatch — lobby:', selectedLobby.id);
+    console.log('[Matchmaking] handlePostMatch — fieldId:', selectedLobby.fieldId, 'date:', selectedLobby.date, 'time:', selectedLobby.startTime);
 
     if (selectedLobby.isTeamMatch) {
-       if (teamWallet.balance < 550) {
-          alert("Team Wallet balance insufficient (R550 required).");
-          return;
-       }
-       onDeductFromTeamWallet(550);
-       const finalLobby = {
-          ...selectedLobby,
-          joinedCount: 11,
-          paidCount: 11,
-          teamAFunded: true
-       };
-       setSelectedLobby(finalLobby);
-       onUpdateLobbies([finalLobby, ...activeLobbies]);
+      if (teamWallet.balance < 550) {
+        alert("Team Wallet balance insufficient (R550 required).");
+        return;
+      }
+      if (!selectedLobby.fieldId) {
+        alert('No field selected. Please restart the hosting flow and select a venue.');
+        return;
+      }
+      try {
+        await apiCreateLobby({
+          fieldId: selectedLobby.fieldId,
+          date: selectedLobby.date,
+          timeSlot: selectedLobby.startTime,
+          intensity: selectedLobby.intensity || 'Casual',
+          maxPlayers: 22,
+          feePerPlayer: 50,
+          teamId: userTeam?.id,
+        });
+        onDeductFromTeamWallet(550);
+      } catch (err) {
+        const msg = err instanceof ApiError ? err.message : 'Failed to post team match';
+        alert(`Could not post team match: ${msg}`);
+        return;
+      }
     } else {
-       const finalLobby = {
-         ...selectedLobby,
-         joinedCount: Object.keys(assignedPositions).length,
-         paidCount: Object.values(assignedPositions).filter(v => v === 'YOU').length,
-       };
-       setSelectedLobby(finalLobby);
+      // POST lobby to API — this persists it in the database
+      if (!selectedLobby.fieldId) {
+        alert('No field selected. Please restart the hosting flow and select a venue.');
+        return;
+      }
+      console.log('[Matchmaking] Calling POST /api/lobbies...');
+      try {
+        const res = await apiCreateLobby({
+          fieldId: selectedLobby.fieldId,
+          date: selectedLobby.date,
+          timeSlot: selectedLobby.startTime,
+          intensity: selectedLobby.intensity || 'Casual',
+          maxPlayers: 10,
+          feePerPlayer: 50,
+        });
+        console.log('[Matchmaking] Lobby created in DB:', res.lobby.id, 'status:', res.lobby.status);
+      } catch (err) {
+        const msg = err instanceof ApiError ? err.message : 'Failed to post match to lobby';
+        console.error('[Matchmaking] POST /api/lobbies error:', msg);
+        alert(`Could not post match: ${msg}`);
+        return; // Stay on the lobby screen — don't close
+      }
     }
 
-    // Stop chat polling
-    if (chatPollRef.current) {
-      clearInterval(chatPollRef.current);
-      chatPollRef.current = null;
-    }
+    // Stop polling
+    if (chatPollRef.current) { clearInterval(chatPollRef.current); chatPollRef.current = null; }
+    if (formationPollRef.current) { clearInterval(formationPollRef.current); formationPollRef.current = null; }
 
+    // Go back to lobby list
     setMatchJoined(false);
     setSelectedLobby(null);
 
-    // Re-fetch lobbies from API to ensure persistence
-    console.log('[Matchmaking] Re-fetching lobbies from API...');
+    // Refresh list — the newly created lobby should now appear
+    console.log('[Matchmaking] Refreshing lobby list after posting...');
     await fetchLobbies();
   };
 
   const handlePositionClick = (id: string) => {
     if (matchPhase === 'CONFIRMED' || assignedPositions[id]) return;
 
-    if (selectedLobby?.isTeamMatch) {
-       if (id.startsWith('b-')) {
-          if (userRole !== 'CAPTAIN') {
-            alert("Only a Captain can challenge another team.");
-            return;
-          }
-          setPaymentPendingId('TEAM_B_CHALLENGE');
-       } else {
-          alert("Team A slots are reserved for the host squad.");
-          return;
-       }
-    } else {
-       setPaymentPendingId(id);
-    }
+    // Team matches: positions auto-fill via accept-challenge; no individual clicking
+    if (selectedLobby?.isTeamMatch) return;
 
+    setPaymentPendingId(id);
+    setPaymentStep('IDLE');
+    setShowPaymentModal(true);
+  };
+
+  const handleAcceptChallenge = () => {
+    if (userRole !== 'CAPTAIN') {
+      alert('Only a team captain can accept a challenge.');
+      return;
+    }
+    setPaymentPendingId('TEAM_B_CHALLENGE');
     setPaymentStep('IDLE');
     setShowPaymentModal(true);
   };
@@ -406,52 +471,96 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
     setPaymentStep('PROCESSING');
 
     if (paymentPendingId === 'TEAM_B_CHALLENGE' && selectedLobby?.isTeamMatch) {
-      // Team challenge payment
-      setTimeout(() => {
-        if (teamWallet.balance < 550) {
-          alert("Insufficient team funds.");
-          setShowPaymentModal(false);
-          setPaymentStep('IDLE');
-          return;
-        }
+      // Team challenge: accept challenge via API, auto-fills AWAY from challenger's team
+      if (teamWallet.balance < 550) {
+        alert('Insufficient team funds (R550 required).');
+        setShowPaymentModal(false);
+        setPaymentStep('IDLE');
+        return;
+      }
+
+      try {
+        const result = await acceptLobbyChallenge(selectedLobby.id);
         onDeductFromTeamWallet(550);
+
+        // Map returned formation to assignedPositions
+        const positions: Record<string, string> = {};
+        result.home.forEach(p => {
+          const slotId = HOME_IDS[p.positionIndex];
+          if (slotId) positions[slotId] = p.user.fullName;
+        });
+        result.away.forEach(p => {
+          const slotId = AWAY_IDS[p.positionIndex];
+          if (slotId) positions[slotId] = p.user.fullName;
+        });
+        setAssignedPositions(positions);
+
+        setChallengerTeamName(result.challengerTeamName);
         setPaymentStep('SUCCESS');
         setTimeout(() => {
-          const updatedLobby = { ...selectedLobby, teamBFunded: true, joinedCount: 22, paidCount: 22 };
-          setSelectedLobby(updatedLobby);
-          onUpdateLobbies(activeLobbies.map(l => l.id === updatedLobby.id ? updatedLobby : l));
-
-          const challengerSquad: Record<string, string> = {};
-          FULL_SQUAD_LAYOUT.filter(p => p.team === 'B').forEach(p => { challengerSquad[p.id] = "CHALLENGER SQUAD"; });
-          setAssignedPositions(prev => ({ ...prev, ...challengerSquad }));
           setShowPaymentModal(false);
           setPaymentStep('IDLE');
+          if (result.status === 'CONFIRMED') {
+            setMatchPhase('CONFIRMED');
+            setSelectedLobby(prev => prev ? { ...prev, isConfirmed: true } : prev);
+          }
+          fetchLobbies();
         }, 1000);
-      }, 1500);
+      } catch (err) {
+        const msg = err instanceof ApiError ? err.message : 'Failed to accept challenge';
+        alert(msg);
+        setShowPaymentModal(false);
+        setPaymentStep('IDLE');
+      }
     } else if (paymentPendingId && selectedLobby) {
-      // Quick Play: fetch fresh wallet balance, then pay via API
+      // Quick Play: pay entry fee, then claim the clicked position
       const lobbyId = selectedLobby.id;
+      const posInfo = POSITION_INFO[paymentPendingId];
 
-      // Refresh wallet from API to get real balance
+      // Check balance
       try {
         const walletData = await getMyWallet();
-        const freshBalance = walletData.wallet.balance;
-        if (freshBalance < selectedLobby.price) {
-          alert(`Insufficient funds. Balance: R${freshBalance.toFixed(2)}, Required: R${selectedLobby.price.toFixed(2)}`);
+        if (walletData.wallet.balance < selectedLobby.price) {
+          alert(`Insufficient funds. Balance: R${walletData.wallet.balance.toFixed(2)}, Required: R${selectedLobby.price.toFixed(2)}`);
           setShowPaymentModal(false);
           setPaymentStep('IDLE');
           return;
         }
       } catch {
-        // If we can't verify balance, proceed anyway — server will reject if insufficient
+        // Proceed; server rejects if truly insufficient
       }
 
       try {
         await apiPayLobby(lobbyId);
+
+        // Claim the specific position clicked
+        if (posInfo) {
+          try {
+            const result = await pickLobbyPosition(lobbyId, {
+              teamSide: posInfo.teamSide,
+              positionOnField: posInfo.label,
+              positionIndex: posInfo.positionIndex,
+            });
+            // Use returned formation data for accurate render
+            const positions: Record<string, string> = {};
+            result.home.forEach(p => {
+              const slotId = HOME_IDS[p.positionIndex];
+              if (slotId) positions[slotId] = p.user.fullName;
+            });
+            result.away.forEach(p => {
+              const slotId = AWAY_IDS[p.positionIndex];
+              if (slotId) positions[slotId] = p.user.fullName;
+            });
+            setAssignedPositions(positions);
+          } catch {
+            // Slot taken or error — reload formation to show current state
+            await loadFormation(lobbyId);
+          }
+        }
+
         await refreshWallet();
         setPaymentStep('SUCCESS');
         setTimeout(() => {
-          setAssignedPositions(prev => ({ ...prev, [paymentPendingId]: 'YOU' }));
           setShowPaymentModal(false);
           setPaymentStep('IDLE');
           fetchLobbies();
@@ -480,14 +589,36 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
     onUpdateLobbies(activeLobbies.map(l => l.id === selectedLobby.id ? confirmedLobby : l));
   };
 
-  const handleGoToReport = () => {
-    if (!selectedLobby) return;
-    const squadList = FULL_SQUAD_LAYOUT.map(p => ({
-      id: p.id,
-      name: assignedPositions[p.id] || 'Guest',
-      team: p.team
-    }));
-    onConfirmed?.(selectedLobby, squadList);
+  const handleReportResults = async (scoreHome: number, scoreAway: number, players: { name: string; team: 'HOME' | 'AWAY'; goals: number; assists: number }[]): Promise<boolean> => {
+    if (!selectedLobby || selectedLobby.id.startsWith('l-')) return false;
+
+    try {
+      await completeMatch({
+        lobbyId: selectedLobby.id,
+        scoreHome,
+        scoreAway,
+        players: players.map(p => ({
+          userId: p.name, // Server will resolve by name or use as identifier
+          teamSide: p.team,
+          goals: p.goals,
+          assists: p.assists,
+        })),
+      });
+
+      // Stop polling
+      if (chatPollRef.current) { clearInterval(chatPollRef.current); chatPollRef.current = null; }
+      if (formationPollRef.current) { clearInterval(formationPollRef.current); formationPollRef.current = null; }
+
+      // Refresh wallet and lobbies
+      await refreshWallet();
+      await fetchLobbies();
+
+      return true;
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : 'Failed to post match results';
+      alert(msg);
+      return false;
+    }
   };
 
   return (
@@ -509,22 +640,24 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
       onSendLobbyMessage={handleSendLobbyMessage}
       onPositionClick={handlePositionClick}
       onAutoFill={() => {}}
-      onGoToReport={handleGoToReport}
       onPostMatch={handlePostMatch}
-      isMatchFinished={isMatchFinished}
-      setIsMatchFinished={setIsMatchFinished}
+      onAcceptChallenge={handleAcceptChallenge}
+      onReportResults={handleReportResults}
       showPaymentModal={showPaymentModal}
       setShowPaymentModal={setShowPaymentModal}
       onProcessPayment={handleProcessPayment}
       paymentStep={paymentStep}
       lobbies={activeLobbies}
-      fields={fields}
+      fields={hostingFields.length > 0 ? hostingFields : fields}
       onEnterLobby={enterLobby}
       onStartHosting={startHostingFlow}
       onSelectVenue={selectVenue}
       onSelectDateTime={selectDateTime}
       userRole={userRole}
       teamWallet={teamWallet}
+      currentUserId={userProfile.id}
+      userTeamId={userTeam?.id}
+      challengerTeamName={challengerTeamName}
     />
   );
 };

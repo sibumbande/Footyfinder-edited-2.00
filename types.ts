@@ -87,8 +87,12 @@ export interface MatchLobby {
   isConfirmed: boolean;
   isReported?: boolean;
   isTeamMatch?: boolean;
+  teamId?: string;
+  teamName?: string;
   teamAFunded?: boolean;
   teamBFunded?: boolean;
+  createdBy?: string;
+  city?: string;
 }
 
 export interface PlayerStats {
@@ -118,6 +122,7 @@ export interface FieldListing {
   id: string;
   name: string;
   location: string;
+  city?: string;
   pricePerPlayer: number;
   imageUrl: string;
   rating: number;

@@ -40,6 +40,119 @@ function recalcLobbyStatus(lobbyId: string) {
   db.prepare('UPDATE lobbies SET status = ? WHERE id = ?').run(newStatus, lobbyId);
 }
 
+// Position labels for each index slot (match FULL_SQUAD_LAYOUT order in frontend)
+const HOME_LABELS = ['GK', 'LB', 'CB', 'CB', 'RB', 'LM', 'CM', 'CM', 'RM', 'ST', 'ST'];
+const AWAY_LABELS = ['ST', 'ST', 'LM', 'CM', 'CM', 'RM', 'LB', 'CB', 'CB', 'RB', 'GK'];
+
+// Maps position_in_formation slot IDs → positionIndex for each side
+// HOME side: index 0=GK, 1=LB, 2=CB1, 3=CB2, 4=RB, 5=LM, 6=CM1, 7=CM2, 8=RM, 9=ST1, 10=ST2
+const HOME_SLOT_TO_INDEX: Record<string, number> = {
+  'gk': 0, 'lb': 1, 'cb1': 2, 'cb2': 3, 'rb': 4,
+  'lm': 5, 'cm1': 6, 'cm2': 7, 'rm': 8, 'st1': 9, 'st2': 10,
+};
+// AWAY side: index 0=ST1, 1=ST2, 2=LM, 3=CM1, 4=CM2, 5=RM, 6=LB, 7=CB1, 8=CB2, 9=RB, 10=GK
+const AWAY_SLOT_TO_INDEX: Record<string, number> = {
+  'st1': 0, 'st2': 1, 'lm': 2, 'cm1': 3, 'cm2': 4,
+  'rm': 5, 'lb': 6, 'cb1': 7, 'cb2': 8, 'rb': 9, 'gk': 10,
+};
+
+function getFormationRows(lobbyId: string, db: any) {
+  const positions = db.prepare(
+    `SELECT lp.team_side, lp.position_on_field, lp.position_index,
+            u.id AS user_id, u.username, u.full_name, u.avatar_url
+     FROM lobby_positions lp
+     JOIN users u ON u.id = lp.user_id
+     WHERE lp.lobby_id = ?
+     ORDER BY lp.team_side, lp.position_index`
+  ).all(lobbyId) as Record<string, any>[];
+
+  const mapPos = (p: Record<string, any>) => ({
+    positionIndex: p.position_index,
+    positionOnField: p.position_on_field,
+    user: { id: p.user_id, username: p.username, fullName: p.full_name, avatarUrl: p.avatar_url },
+  });
+
+  return {
+    home: positions.filter(p => p.team_side === 'HOME').map(mapPos),
+    away: positions.filter(p => p.team_side === 'AWAY').map(mapPos),
+  };
+}
+
+function fillTeamPositions(
+  db: any,
+  lobbyId: string,
+  teamId: string,
+  teamSide: 'HOME' | 'AWAY'
+): number {
+  const labels = teamSide === 'HOME' ? HOME_LABELS : AWAY_LABELS;
+  const slotToIndex = teamSide === 'HOME' ? HOME_SLOT_TO_INDEX : AWAY_SLOT_TO_INDEX;
+
+  const members = db.prepare(
+    `SELECT u.id AS user_id, tm.position_in_formation
+     FROM team_members tm
+     JOIN users u ON u.id = tm.user_id
+     WHERE tm.team_id = ?
+     ORDER BY tm.role DESC, tm.joined_at
+     LIMIT 11`
+  ).all(teamId) as { user_id: string; position_in_formation: string | null }[];
+
+  // Two-pass assignment:
+  // Pass 1 — assign members who have a position_in_formation that maps to a valid index
+  const occupiedIndices = new Set<number>();
+  const assignedUserIds = new Set<string>();
+
+  members.forEach(member => {
+    if (!member.position_in_formation) return;
+    const idx = slotToIndex[member.position_in_formation];
+    if (idx === undefined || occupiedIndices.has(idx)) return;
+
+    db.prepare(
+      `INSERT OR IGNORE INTO lobby_positions (id, lobby_id, user_id, team_side, position_on_field, position_index)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(uid('lpos'), lobbyId, member.user_id, teamSide, labels[idx], idx);
+
+    occupiedIndices.add(idx);
+    assignedUserIds.add(member.user_id);
+  });
+
+  // Pass 2 — fill remaining members (no position_in_formation or unmapped) sequentially
+  let nextIndex = 0;
+  members.forEach(member => {
+    if (assignedUserIds.has(member.user_id)) return;
+
+    // Find the next free index slot
+    while (occupiedIndices.has(nextIndex) && nextIndex < 11) nextIndex++;
+    if (nextIndex >= 11) return;
+
+    db.prepare(
+      `INSERT OR IGNORE INTO lobby_positions (id, lobby_id, user_id, team_side, position_on_field, position_index)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(uid('lpos'), lobbyId, member.user_id, teamSide, labels[nextIndex], nextIndex);
+
+    occupiedIndices.add(nextIndex);
+    assignedUserIds.add(member.user_id);
+    nextIndex++;
+  });
+
+  // Add all members as lobby_participants with has_paid=1 (team wallet covers fees)
+  members.forEach(member => {
+    const existingPart = db.prepare(
+      'SELECT id FROM lobby_participants WHERE lobby_id = ? AND user_id = ?'
+    ).get(lobbyId, member.user_id);
+
+    if (!existingPart) {
+      db.prepare(
+        `INSERT INTO lobby_participants (id, lobby_id, user_id, has_paid) VALUES (?, ?, ?, 1)`
+      ).run(uid('lp'), lobbyId, member.user_id);
+    } else {
+      db.prepare('UPDATE lobby_participants SET has_paid = 1 WHERE lobby_id = ? AND user_id = ?')
+        .run(lobbyId, member.user_id);
+    }
+  });
+
+  return members.length;
+}
+
 // ── GET / — List active lobbies (public) ────────────────────────────────────
 
 router.get('/', (req: Request, res: Response) => {
@@ -48,7 +161,8 @@ router.get('/', (req: Request, res: Response) => {
     const { fieldId, city, intensity, date } = req.query;
 
     let sql = `SELECT l.id, l.field_id, l.intensity, l.max_players, l.fee_per_player,
-                      l.status, l.created_by, l.created_at,
+                      l.status, l.created_by, l.created_at, l.team_id,
+                      t.name AS team_name,
                       f.name AS field_name, f.location AS field_location, f.city AS field_city,
                       ft.date, ft.time_slot,
                       (SELECT count(*) FROM lobby_participants lp WHERE lp.lobby_id = l.id) AS participant_count,
@@ -56,6 +170,7 @@ router.get('/', (req: Request, res: Response) => {
                FROM lobbies l
                JOIN fields f ON f.id = l.field_id
                LEFT JOIN field_timetable ft ON ft.id = l.timetable_id
+               LEFT JOIN teams t ON t.id = l.team_id
                WHERE l.status IN ('OPEN', 'FILLING', 'FULL', 'CONFIRMED')`;
 
     const params: any[] = [];
@@ -82,6 +197,8 @@ router.get('/', (req: Request, res: Response) => {
         participantCount: r.participant_count,
         paidCount: r.paid_count,
         createdBy: r.created_by,
+        teamId: r.team_id || undefined,
+        teamName: r.team_name || undefined,
       })),
     });
   } catch (err: any) {
@@ -147,7 +264,7 @@ router.get('/:id', (req: Request, res: Response) => {
 router.post('/', authenticate, (req, res: Response) => {
   try {
     const { userId } = req as AuthRequest;
-    const { fieldId, timetableId: directTimetableId, date, timeSlot, intensity, maxPlayers, feePerPlayer } = req.body;
+    const { fieldId, timetableId: directTimetableId, date, timeSlot, intensity, maxPlayers, feePerPlayer, teamId } = req.body;
     const db = getDb();
 
     if (!fieldId) {
@@ -207,10 +324,11 @@ router.post('/', authenticate, (req, res: Response) => {
 
     // Create lobby
     db.prepare(
-      `INSERT INTO lobbies (id, field_id, timetable_id, created_by, intensity, max_players, fee_per_player, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'FILLING')`
+      `INSERT INTO lobbies (id, field_id, timetable_id, created_by, team_id, intensity, max_players, fee_per_player, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'FILLING')`
     ).run(
       lobbyId, fieldId, resolvedTimetableId, userId,
+      teamId || null,
       intensity || 'Casual',
       maxPlayers || 10,
       feePerPlayer ?? 50.00
@@ -220,11 +338,17 @@ router.post('/', authenticate, (req, res: Response) => {
     db.prepare('UPDATE field_timetable SET status = ?, lobby_id = ? WHERE id = ?')
       .run('RESERVED', lobbyId, resolvedTimetableId);
 
-    // Auto-add creator as first participant
-    db.prepare(
-      `INSERT INTO lobby_participants (id, lobby_id, user_id, has_paid)
-       VALUES (?, ?, ?, 0)`
-    ).run(participantId, lobbyId, userId);
+    if (teamId) {
+      // Team match: auto-fill HOME positions from team members (they're marked as paid)
+      fillTeamPositions(db, lobbyId, teamId, 'HOME');
+      recalcLobbyStatus(lobbyId);
+    } else {
+      // Quick play: add creator as first participant (unpaid until they pay)
+      db.prepare(
+        `INSERT INTO lobby_participants (id, lobby_id, user_id, has_paid)
+         VALUES (?, ?, ?, 0)`
+      ).run(participantId, lobbyId, userId);
+    }
 
     db.save();
 
@@ -546,6 +670,237 @@ router.post('/:id/leave', authenticate, (req, res: Response) => {
   } catch (err: any) {
     console.error('[Lobbies] POST /:id/leave error:', err.message);
     res.status(500).json({ error: 'Failed to leave lobby' });
+  }
+});
+
+// ── GET /:id/formation — Get pitch positions for a lobby (public) ─────────
+
+router.get('/:id/formation', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const db = getDb();
+
+    const lobbyRow = db.prepare('SELECT id, team_id FROM lobbies WHERE id = ?').get(id) as { id: string; team_id: string | null } | undefined;
+    if (!lobbyRow) {
+      res.status(404).json({ error: 'Lobby not found' });
+      return;
+    }
+
+    const formation = getFormationRows(id, db);
+
+    // For team lobbies, merge the host team's saved layout into HOME side
+    // This fills name-only squad members (not real DB users) for visual display
+    if (lobbyRow.team_id) {
+      const teamRow = db.prepare('SELECT team_layout FROM teams WHERE id = ?').get(lobbyRow.team_id) as { team_layout: string | null } | undefined;
+      if (teamRow?.team_layout) {
+        try {
+          const layout = JSON.parse(teamRow.team_layout) as Record<string, string>;
+          const occupiedHomeIndices = new Set(formation.home.map(p => p.positionIndex));
+
+          for (const [slotId, playerName] of Object.entries(layout)) {
+            if (!playerName) continue;
+            const idx = HOME_SLOT_TO_INDEX[slotId];
+            if (idx === undefined || occupiedHomeIndices.has(idx)) continue;
+
+            formation.home.push({
+              positionIndex: idx,
+              positionOnField: HOME_LABELS[idx],
+              user: { id: `layout-${slotId}`, username: playerName, fullName: playerName, avatarUrl: null },
+            });
+            occupiedHomeIndices.add(idx);
+          }
+
+          // Keep sorted by positionIndex
+          formation.home.sort((a, b) => a.positionIndex - b.positionIndex);
+        } catch {
+          // Malformed JSON — skip layout merge
+        }
+      }
+    }
+
+    res.json(formation);
+  } catch (err: any) {
+    console.error('[Lobbies] GET /:id/formation error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch formation' });
+  }
+});
+
+// ── POST /:id/pick-position — Claim a pitch position (protected) ───────────
+
+router.post('/:id/pick-position', authenticate, (req, res: Response) => {
+  try {
+    const { userId } = req as AuthRequest;
+    const { id } = req.params;
+    const { teamSide, positionOnField, positionIndex } = req.body;
+    const db = getDb();
+
+    if (!teamSide || !positionOnField || positionIndex === undefined || positionIndex === null) {
+      res.status(400).json({ error: 'teamSide, positionOnField, and positionIndex are required' });
+      return;
+    }
+
+    if (!['HOME', 'AWAY'].includes(teamSide)) {
+      res.status(400).json({ error: 'teamSide must be HOME or AWAY' });
+      return;
+    }
+
+    const lobby = db.prepare('SELECT id, status FROM lobbies WHERE id = ?').get(id) as Record<string, any> | undefined;
+    if (!lobby) {
+      res.status(404).json({ error: 'Lobby not found' });
+      return;
+    }
+
+    if (lobby.status === 'CANCELLED' || lobby.status === 'COMPLETED') {
+      res.status(400).json({ error: 'Lobby is not active' });
+      return;
+    }
+
+    // Must be a paid participant
+    const participant = db.prepare(
+      'SELECT id, has_paid FROM lobby_participants WHERE lobby_id = ? AND user_id = ?'
+    ).get(id, userId) as { id: string; has_paid: number } | undefined;
+
+    if (!participant || !participant.has_paid) {
+      res.status(400).json({ error: 'You must pay the entry fee before picking a position' });
+      return;
+    }
+
+    // Check position slot not already taken by someone else
+    const slotTaken = db.prepare(
+      'SELECT user_id FROM lobby_positions WHERE lobby_id = ? AND team_side = ? AND position_index = ?'
+    ).get(id, teamSide, positionIndex) as { user_id: string } | undefined;
+
+    if (slotTaken && slotTaken.user_id !== userId) {
+      res.status(400).json({ error: 'That position is already taken' });
+      return;
+    }
+
+    // Upsert: update existing row if user has one, else insert
+    const existing = db.prepare(
+      'SELECT id FROM lobby_positions WHERE lobby_id = ? AND user_id = ?'
+    ).get(id, userId);
+
+    if (existing) {
+      db.prepare(
+        `UPDATE lobby_positions
+         SET team_side = ?, position_on_field = ?, position_index = ?
+         WHERE lobby_id = ? AND user_id = ?`
+      ).run(teamSide, positionOnField, positionIndex, id, userId);
+    } else {
+      db.prepare(
+        `INSERT INTO lobby_positions (id, lobby_id, user_id, team_side, position_on_field, position_index)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(uid('lpos'), id, userId, teamSide, positionOnField, positionIndex);
+    }
+
+    db.save();
+
+    const formation = getFormationRows(id, db);
+    res.json({ message: 'Position claimed', home: formation.home, away: formation.away });
+  } catch (err: any) {
+    console.error('[Lobbies] POST /:id/pick-position error:', err.message);
+    res.status(500).json({ error: 'Failed to pick position' });
+  }
+});
+
+// ── POST /:id/accept-challenge — Challenger team auto-fills AWAY (protected)
+
+router.post('/:id/accept-challenge', authenticate, (req, res: Response) => {
+  try {
+    const { userId } = req as AuthRequest;
+    const { id } = req.params;
+    const db = getDb();
+
+    const lobby = db.prepare(
+      'SELECT id, team_id, timetable_id, status FROM lobbies WHERE id = ?'
+    ).get(id) as Record<string, any> | undefined;
+
+    if (!lobby) {
+      res.status(404).json({ error: 'Lobby not found' });
+      return;
+    }
+
+    if (!lobby.team_id) {
+      res.status(400).json({ error: 'This is not a team match' });
+      return;
+    }
+
+    if (lobby.status === 'CONFIRMED' || lobby.status === 'CANCELLED') {
+      res.status(400).json({ error: `Lobby is already ${lobby.status.toLowerCase()}` });
+      return;
+    }
+
+    // Caller must be a captain of a DIFFERENT team
+    const membership = db.prepare(
+      `SELECT tm.team_id, tm.role
+       FROM team_members tm
+       WHERE tm.user_id = ? AND tm.role = 'CAPTAIN'`
+    ).get(userId) as { team_id: string; role: string } | undefined;
+
+    console.log('[Lobbies] accept-challenge debug:', {
+      userId,
+      lobbyTeamId: lobby.team_id,
+      challengerTeamId: membership?.team_id ?? 'NO_MEMBERSHIP',
+      sameTeam: membership?.team_id === lobby.team_id,
+    });
+
+    if (!membership) {
+      res.status(403).json({ error: 'Only a team captain can accept a challenge' });
+      return;
+    }
+
+    if (membership.team_id === lobby.team_id) {
+      res.status(400).json({ error: 'You cannot challenge your own team' });
+      return;
+    }
+
+    // AWAY side must not already be filled
+    const awayCount = db.prepare(
+      "SELECT count(*) AS c FROM lobby_positions WHERE lobby_id = ? AND team_side = 'AWAY'"
+    ).get(id) as { c: number };
+
+    if (awayCount.c > 0) {
+      res.status(400).json({ error: 'A challenger team has already accepted this match' });
+      return;
+    }
+
+    // Auto-fill AWAY positions from challenger's team
+    const filled = fillTeamPositions(db, id, membership.team_id, 'AWAY');
+    if (filled === 0) {
+      res.status(400).json({ error: 'Your team has no members' });
+      return;
+    }
+
+    // If HOME side also has players, auto-confirm
+    const homeCount = db.prepare(
+      "SELECT count(*) AS c FROM lobby_positions WHERE lobby_id = ? AND team_side = 'HOME'"
+    ).get(id) as { c: number };
+
+    let newStatus = lobby.status as string;
+    if (homeCount.c > 0) {
+      db.prepare("UPDATE lobbies SET status = 'CONFIRMED' WHERE id = ?").run(id);
+      newStatus = 'CONFIRMED';
+      if (lobby.timetable_id) {
+        db.prepare("UPDATE field_timetable SET status = 'BOOKED' WHERE id = ?").run(lobby.timetable_id);
+      }
+    }
+
+    // Get challenger team name
+    const challengerTeam = db.prepare('SELECT name FROM teams WHERE id = ?').get(membership.team_id) as { name: string } | undefined;
+
+    db.save();
+
+    const formation = getFormationRows(id, db);
+    res.json({
+      message: 'Challenge accepted',
+      status: newStatus,
+      challengerTeamName: challengerTeam?.name || 'Challenger',
+      home: formation.home,
+      away: formation.away,
+    });
+  } catch (err: any) {
+    console.error('[Lobbies] POST /:id/accept-challenge error:', err.message);
+    res.status(500).json({ error: 'Failed to accept challenge' });
   }
 });
 

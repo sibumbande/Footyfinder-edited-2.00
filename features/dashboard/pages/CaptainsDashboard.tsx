@@ -35,6 +35,7 @@ interface CaptainsDashboardProps {
   messages: any[];
   onSendMessage: (text: string) => void;
   onTeamUpdated?: (team: Team) => void;
+  onSave?: () => void;
 }
 
 export const CaptainsDashboard: React.FC<CaptainsDashboardProps> = (props) => {

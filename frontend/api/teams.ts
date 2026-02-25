@@ -43,3 +43,7 @@ export function contributeToTeam(id: string, amount: number) {
     teamWallet: { balance: number };
   }>(`/teams/${id}/contribute`, { amount });
 }
+
+export function saveTeamLayout(id: string, layout: Record<string, string>) {
+  return api.post<{ message: string }>(`/teams/${id}/save-layout`, { layout });
+}

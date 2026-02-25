@@ -366,6 +366,39 @@ router.post('/:id/contribute', (req, res: Response) => {
   }
 });
 
+// ── POST /:id/save-layout — Save captain's formation layout ─────────────────
+
+router.post('/:id/save-layout', (req, res: Response) => {
+  try {
+    const { userId } = req as AuthRequest;
+    const { id } = req.params;
+    const { layout } = req.body;
+    const db = getDb();
+
+    const team = db.prepare('SELECT captain_id FROM teams WHERE id = ?').get(id) as { captain_id: string } | undefined;
+    if (!team) {
+      res.status(404).json({ error: 'Team not found' });
+      return;
+    }
+    if (team.captain_id !== userId) {
+      res.status(403).json({ error: 'Only the captain can save the layout' });
+      return;
+    }
+    if (!layout || typeof layout !== 'object') {
+      res.status(400).json({ error: 'layout must be a JSON object' });
+      return;
+    }
+
+    db.prepare('UPDATE teams SET team_layout = ? WHERE id = ?').run(JSON.stringify(layout), id);
+    db.save();
+
+    res.json({ message: 'Layout saved' });
+  } catch (err: any) {
+    console.error('[Teams] POST /:id/save-layout error:', err.message);
+    res.status(500).json({ error: 'Failed to save layout' });
+  }
+});
+
 // ── GET /:id — Team public profile ──────────────────────────────────────────
 
 router.get('/:id', (req, res: Response) => {

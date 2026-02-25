@@ -16,7 +16,7 @@ interface ProfileProps {
 }
 
 export const Profile: React.FC<ProfileProps> = ({ userProfile, matchHistory = [], onLoadFunds }) => {
-  const [activeTab, setActiveTab] = useState<'info' | 'wallet' | 'stats'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'wallet'>('info');
   const [showTopUp, setShowTopUp] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState('100');
   const [loadingFunds, setLoadingFunds] = useState(false);
@@ -57,6 +57,16 @@ export const Profile: React.FC<ProfileProps> = ({ userProfile, matchHistory = []
 
   const user = userProfile;
 
+  const positionAbbr: Record<string, string> = {
+    'Goalkeeper': 'GK',
+    'Defender': 'DEF',
+    'Midfielder': 'MID',
+    'Forward': 'FWD',
+  };
+
+  const isPositive = (type: string) =>
+    type === 'CREDIT' || type === 'DEPOSIT' || type === 'ESCROW_REFUND';
+
   return (
     <div className="min-h-screen bg-gray-50 pb-24 md:pt-20">
       <div className="bg-blue-900 h-32 md:h-48 relative overflow-hidden">
@@ -94,7 +104,7 @@ export const Profile: React.FC<ProfileProps> = ({ userProfile, matchHistory = []
         </div>
 
         <div className="flex gap-4 mb-10 overflow-x-auto no-scrollbar">
-           {['info', 'wallet', 'stats'].map(tab => (
+           {(['info', 'wallet'] as const).map(tab => (
              <button key={tab} onClick={() => setActiveTab(tab as any)} className={`px-8 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === tab ? 'bg-slate-900 text-white shadow-xl scale-105' : 'bg-white text-slate-400 border'}`}>
                {tab}
              </button>
@@ -109,7 +119,7 @@ export const Profile: React.FC<ProfileProps> = ({ userProfile, matchHistory = []
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                        <div className="p-8 bg-blue-50 rounded-[32px] border border-blue-100 shadow-inner">
                           <p className="text-[10px] text-blue-600 font-black uppercase tracking-widest mb-3">Tactical Position</p>
-                          <p className="text-2xl font-black text-gray-900 leading-none">{user.position}</p>
+                          <p className="text-2xl font-black text-gray-900 leading-none">{positionAbbr[user.position as string] || user.position}</p>
                        </div>
                        <div className="p-8 bg-emerald-50 rounded-[32px] border border-emerald-100 shadow-inner">
                           <p className="text-[10px] text-emerald-600 font-black uppercase tracking-widest mb-3">Matches Played</p>
@@ -189,14 +199,14 @@ export const Profile: React.FC<ProfileProps> = ({ userProfile, matchHistory = []
                     <div key={tx.id} className="flex items-center justify-between p-5 bg-slate-50 rounded-3xl border border-slate-100">
                       <div className="flex items-center gap-4">
                         <div className={`p-3 rounded-2xl ${
-                          tx.type === 'CREDIT' ? 'bg-emerald-100 text-emerald-600' :
+                          tx.type === 'CREDIT' || tx.type === 'DEPOSIT' ? 'bg-emerald-100 text-emerald-600' :
                           tx.type === 'ESCROW_HOLD' ? 'bg-amber-100 text-amber-600' :
                           tx.type === 'ESCROW_RELEASE' ? 'bg-blue-100 text-blue-600' :
                           tx.type === 'ESCROW_REFUND' ? 'bg-emerald-100 text-emerald-600' :
                           tx.type === 'TEAM_CONTRIBUTION' ? 'bg-purple-100 text-purple-600' :
                           'bg-red-100 text-red-600'
                         }`}>
-                          {tx.type === 'CREDIT' ? <ArrowDownLeft size={16} /> :
+                          {tx.type === 'CREDIT' || tx.type === 'DEPOSIT' ? <ArrowDownLeft size={16} /> :
                            tx.type === 'ESCROW_HOLD' ? <Lock size={16} /> :
                            tx.type === 'ESCROW_RELEASE' ? <CheckCircle2 size={16} /> :
                            tx.type === 'ESCROW_REFUND' ? <ArrowDownLeft size={16} /> :
@@ -208,10 +218,8 @@ export const Profile: React.FC<ProfileProps> = ({ userProfile, matchHistory = []
                           <p className="text-[10px] text-slate-400 font-bold uppercase">{new Date(tx.createdAt).toLocaleDateString()}</p>
                         </div>
                       </div>
-                      <p className={`text-sm font-black ${
-                        tx.type === 'CREDIT' || tx.type === 'ESCROW_REFUND' ? 'text-emerald-600' : 'text-red-500'
-                      }`}>
-                        {tx.type === 'CREDIT' || tx.type === 'ESCROW_REFUND' ? '+' : '-'}R{tx.amount.toFixed(2)}
+                      <p className={`text-sm font-black ${isPositive(tx.type) ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {isPositive(tx.type) ? '+' : '-'}R{tx.amount.toFixed(2)}
                       </p>
                     </div>
                   )) : (

@@ -19,6 +19,8 @@ interface LobbyListItem {
   participantCount: number;
   paidCount: number;
   createdBy: string;
+  teamId?: string;
+  teamName?: string;
 }
 
 interface LobbyParticipant {
@@ -68,6 +70,7 @@ export function createLobby(data: {
   intensity?: string;
   maxPlayers?: number;
   feePerPlayer?: number;
+  teamId?: string;
 }) {
   return api.post<{ lobby: LobbyListItem }>('/lobbies', data);
 }
@@ -93,6 +96,29 @@ export function cancelLobby(id: string) {
 
 export function leaveLobby(id: string) {
   return api.post<{ message: string }>(`/lobbies/${id}/leave`);
+}
+
+interface FormationPlayer {
+  positionIndex: number;
+  positionOnField: string;
+  user: { id: string; username: string; fullName: string; avatarUrl: string | null };
+}
+
+export function getLobbyFormation(id: string) {
+  return api.get<{ home: FormationPlayer[]; away: FormationPlayer[] }>(`/lobbies/${id}/formation`);
+}
+
+export function pickLobbyPosition(id: string, data: { teamSide: 'HOME' | 'AWAY'; positionOnField: string; positionIndex: number }) {
+  return api.post<{ message: string; home: FormationPlayer[]; away: FormationPlayer[] }>(
+    `/lobbies/${id}/pick-position`,
+    data
+  );
+}
+
+export function acceptLobbyChallenge(id: string) {
+  return api.post<{ message: string; status: string; challengerTeamName?: string; home: FormationPlayer[]; away: FormationPlayer[] }>(
+    `/lobbies/${id}/accept-challenge`
+  );
 }
 
 export function getLobbyMessages(id: string) {

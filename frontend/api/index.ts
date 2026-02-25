@@ -2,13 +2,39 @@
 
 export { api, ApiError } from './client';
 export { register, login, logout, getToken, isLoggedIn } from './auth';
-export { createTeam, getMyTeam, getTeamById, joinTeam, leaveTeam, updateTeam, contributeToTeam } from './teams';
-export { getLobbies, getLobbyById, createLobby, joinLobby, payLobby, cancelLobby, leaveLobby, getLobbyMessages, sendLobbyMessage } from './lobbies';
+export { createTeam, getMyTeam, getTeamById, joinTeam, leaveTeam, updateTeam, contributeToTeam, saveTeamLayout } from './teams';
+export { getLobbies, getLobbyById, createLobby, joinLobby, payLobby, cancelLobby, leaveLobby, getLobbyMessages, sendLobbyMessage, getLobbyFormation, pickLobbyPosition, acceptLobbyChallenge } from './lobbies';
 export { loadFunds, getTransactions } from './payments';
 
-// ── Users ───────────────────────────────────────────────────────────────────
+// ── Matches ──────────────────────────────────────────────────────────────────
 
 import { api } from './client';
+
+export function completeMatch(data: {
+  lobbyId: string;
+  scoreHome?: number;
+  scoreAway?: number;
+  players?: { userId: string; teamSide: string; goals?: number; assists?: number; rating?: number }[];
+}) {
+  return api.post<{
+    match: {
+      id: string;
+      lobbyId: string;
+      date: string;
+      field: { id: string; name: string; location: string };
+      scoreHome: number;
+      scoreAway: number;
+      status: string;
+    };
+    financials: {
+      totalCollected: number;
+      fieldOwnerPayout: number;
+      platformFee: number;
+    };
+  }>('/matches/complete', data);
+}
+
+// ── Users ───────────────────────────────────────────────────────────────────
 
 export function getMe() {
   return api.get<{

@@ -13,13 +13,15 @@ import { Navigation } from './components/shared/ui/Navigation';
 import { MatchLobby, MatchRecord, UserProfileData, UserWallet, FitnessLevel, PlayerPosition, TeamWallet, Team, SoccerProfile, PracticeSession, FieldListing } from './types';
 import { seedDatabase } from './services/seed';
 import { walletService } from './services';
-import { isLoggedIn as checkIsLoggedIn, logout as apiLogout, getMe, getMyTeam, contributeToTeam as apiContributeToTeam, getMyWallet } from './frontend/api';
+import { isLoggedIn as checkIsLoggedIn, logout as apiLogout, getMe, getMyTeam, contributeToTeam as apiContributeToTeam, getMyWallet, saveTeamLayout } from './frontend/api';
 
+// Slot IDs must match HOME_SLOT_TO_INDEX in server/routes/lobbies.ts
+// so that "Save Layout" → team_layout → formation endpoint roundtrip works
 const DEFAULT_POINTS = [
-  { id: 'gk', label: 'GK', x: 50, y: 90 },
-  { id: 'lb', label: 'LB', x: 15, y: 70 }, { id: 'cb1', label: 'CB', x: 38, y: 75 }, { id: 'cb2', label: 'CB', x: 62, y: 75 }, { id: 'rb', label: 'RB', x: 85, y: 70 },
-  { id: 'cm1', label: 'CM', x: 30, y: 50 }, { id: 'cdm', label: 'CDM', x: 50, y: 55 }, { id: 'cm2', label: 'CM', x: 70, y: 50 },
-  { id: 'lw', label: 'LW', x: 20, y: 25 }, { id: 'st', label: 'ST', x: 50, y: 15 }, { id: 'rw', label: 'RW', x: 80, y: 25 }
+  { id: 'gk',  label: 'GK', x: 50, y: 90 },
+  { id: 'lb',  label: 'LB', x: 15, y: 70 }, { id: 'cb1', label: 'CB', x: 38, y: 75 }, { id: 'cb2', label: 'CB', x: 62, y: 75 }, { id: 'rb',  label: 'RB', x: 85, y: 70 },
+  { id: 'lm',  label: 'LM', x: 15, y: 50 }, { id: 'cm1', label: 'CM', x: 38, y: 50 }, { id: 'cm2', label: 'CM', x: 62, y: 50 }, { id: 'rm',  label: 'RM', x: 85, y: 50 },
+  { id: 'st1', label: 'ST', x: 38, y: 15 }, { id: 'st2', label: 'ST', x: 62, y: 15 },
 ];
 
 const App: React.FC = () => {
@@ -50,6 +52,34 @@ const App: React.FC = () => {
     friends: []
   } as any);
 
+  // Fetch team data from API and update React state
+  const fetchAndSetTeam = async (currentUserId: string) => {
+    try {
+      const teamData = await getMyTeam();
+      const apiTeam: Team = {
+        id: teamData.team.id,
+        name: teamData.team.name,
+        homeColor: teamData.team.primaryColor || '#2563eb',
+        awayColor: teamData.team.secondaryColor || '#ef4444',
+        members: teamData.members.map(m => ({
+          id: m.id,
+          fullName: m.fullName,
+          position: (m.position || 'Midfielder') as PlayerPosition,
+          avatar: m.avatarUrl || 'https://picsum.photos/seed/' + m.id + '/200',
+        })),
+        wallet: { balance: teamData.wallet.balance, contributions: [] },
+      };
+      setUserTeam(apiTeam);
+      const myRole = teamData.members.find(m => m.id === currentUserId)?.role;
+      setUserRole(myRole === 'CAPTAIN' ? 'CAPTAIN' : 'PLAYER');
+      setTeamWallet(prev => ({ ...prev, balance: teamData.wallet.balance }));
+    } catch {
+      // No team or fetch failed — clear any stale team state
+      setUserTeam(null);
+      setUserRole('PLAYER');
+    }
+  };
+
   // Restore session on app load
   useEffect(() => {
     const restoreSession = async () => {
@@ -75,29 +105,7 @@ const App: React.FC = () => {
 
         // Also restore team data if user is in a team
         if (data.team) {
-          try {
-            const teamData = await getMyTeam();
-            const apiTeam: Team = {
-              id: teamData.team.id,
-              name: teamData.team.name,
-              homeColor: teamData.team.primaryColor || '#2563eb',
-              awayColor: teamData.team.secondaryColor || '#ef4444',
-              members: teamData.members.map(m => ({
-                id: m.id,
-                fullName: m.fullName,
-                position: (m.position || 'Midfielder') as PlayerPosition,
-                avatar: m.avatarUrl || 'https://picsum.photos/seed/' + m.id + '/200',
-              })),
-              wallet: { balance: teamData.wallet.balance, contributions: [] },
-            };
-            setUserTeam(apiTeam);
-            // Set role based on team membership
-            const myRole = teamData.members.find(m => m.id === user.id)?.role;
-            setUserRole(myRole === 'CAPTAIN' ? 'CAPTAIN' : 'PLAYER');
-            setTeamWallet(prev => ({ ...prev, balance: teamData.wallet.balance }));
-          } catch {
-            // No team or fetch failed — that's fine
-          }
+          await fetchAndSetTeam(user.id);
         }
       } catch {
         // Token invalid/expired — stay on login
@@ -127,9 +135,9 @@ const App: React.FC = () => {
   const [activeLobbies, setActiveLobbies] = useState<MatchLobby[]>(seedData.lobbies);
   const [trainingSessions, setTrainingSessions] = useState<PracticeSession[]>(seedData.practiceSessions);
   const [generalSquadAssigned, setGeneralSquadAssigned] = useState<Record<string, string>>({
-    'st': 'Siya Kolisi',
+    'st1': 'Siya Kolisi',
     'cm1': 'Thabo Mokoena',
-    'cb1': 'Bongi Mbonambi'
+    'cb1': 'Bongi Mbonambi',
   });
   const [generalSquadPoints, setGeneralSquadPoints] = useState(DEFAULT_POINTS);
   const [squadPool, setSquadPool] = useState(seedData.squadPool);
@@ -163,14 +171,28 @@ const App: React.FC = () => {
     setIsLoggedIn(true);
   };
 
-  const handleLoginSuccess = (user: { id: string; email: string; username: string; fullName: string; position: string | null; fitnessLevel: string | null; city: string | null }) => {
+  const handleLoginSuccess = async (user: { id: string; email: string; username: string; fullName: string; position: string | null; fitnessLevel: string | null; city: string | null }) => {
     applyAuthUser(user);
     navigate('home');
+    // Fetch team data for the logged-in user (prevents stale userTeam from previous session)
+    await fetchAndSetTeam(user.id);
   };
 
   const handleLogout = () => {
     apiLogout();
     setIsLoggedIn(false);
+    setUserTeam(null);
+    setUserRole('PLAYER');
+    setUserProfile(prev => ({
+      ...prev,
+      id: '',
+      fullName: '',
+      wallet: { balance: 0, escrow: 0, transactions: [] },
+      stats: { goals: 0, assists: 0, matchesPlayed: 0 },
+      friends: [],
+    }));
+    setTeamWallet({ balance: 0, contributions: [] });
+    setMatchHistory([]);
     navigate('login');
   };
 
@@ -270,6 +292,15 @@ const App: React.FC = () => {
     setTeamWallet(prev => ({ ...prev, balance: team.wallet.balance }));
   }, []);
 
+  const handleSaveTeamLayout = useCallback(async () => {
+    if (!userTeam) return;
+    try {
+      await saveTeamLayout(userTeam.id, generalSquadAssigned);
+    } catch {
+      // Non-critical — layout saved locally regardless
+    }
+  }, [userTeam, generalSquadAssigned]);
+
   const handleSendMessage = (text: string) => {
     const msg = {
       id: Date.now().toString(),
@@ -341,6 +372,7 @@ const App: React.FC = () => {
             userProfile={userProfile}
             onUpdateUserWallet={handleUpdateUserWallet}
             fields={fields}
+            userTeam={userTeam}
           />
         );
       case 'training':
@@ -423,6 +455,7 @@ const App: React.FC = () => {
               messages={teamMessages}
               onSendMessage={handleSendMessage}
               onTeamUpdated={handleTeamUpdated}
+              onSave={handleSaveTeamLayout}
             />
           );
         }

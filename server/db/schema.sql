@@ -422,6 +422,27 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     FOREIGN KEY (sender_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
+-- ────────────────────────────────────────────────────────────────────────────
+-- 20. lobby_positions
+-- Tracks which player has claimed each pitch position in a lobby.
+-- HOME = Team A (a-* slots), AWAY = Team B (b-* slots)
+-- position_index: 0-10 within each side, matches FULL_SQUAD_LAYOUT order
+-- position_on_field: label like 'GK', 'CB', 'ST' etc.
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS lobby_positions (
+    id                TEXT PRIMARY KEY,
+    lobby_id          TEXT NOT NULL,
+    user_id           TEXT NOT NULL,
+    team_side         TEXT NOT NULL CHECK (team_side IN ('HOME', 'AWAY')),
+    position_on_field TEXT NOT NULL,
+    position_index    INTEGER NOT NULL,
+
+    UNIQUE (lobby_id, user_id),
+    UNIQUE (lobby_id, team_side, position_index),
+    FOREIGN KEY (lobby_id) REFERENCES lobbies (id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id)  REFERENCES users (id)   ON DELETE CASCADE
+);
+
 -- ============================================================================
 -- Indexes for common query patterns
 -- ============================================================================
@@ -440,6 +461,8 @@ CREATE INDEX IF NOT EXISTS idx_lobby_participants_user    ON lobby_participants 
 CREATE INDEX IF NOT EXISTS idx_matches_lobby_id           ON matches (lobby_id);
 CREATE INDEX IF NOT EXISTS idx_match_players_match_id     ON match_players (match_id);
 CREATE INDEX IF NOT EXISTS idx_match_players_user_id      ON match_players (user_id);
+CREATE INDEX IF NOT EXISTS idx_lobby_positions_lobby      ON lobby_positions (lobby_id);
+CREATE INDEX IF NOT EXISTS idx_lobby_positions_user       ON lobby_positions (user_id);
 CREATE INDEX IF NOT EXISTS idx_friendships_requester      ON friendships (requester_id);
 CREATE INDEX IF NOT EXISTS idx_friendships_addressee      ON friendships (addressee_id);
 CREATE INDEX IF NOT EXISTS idx_messages_team_id           ON messages (team_id);

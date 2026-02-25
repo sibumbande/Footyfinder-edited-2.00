@@ -63,17 +63,57 @@ router.post('/complete', (req, res: Response) => {
           scoreHome ?? 0, scoreAway ?? 0,
           totalFeesCollected, fieldOwnerPayout, platformFee);
 
+    // Build a name→userId lookup from lobby_positions + users
+    const lobbyPositionUsers = db.prepare(
+      `SELECT lp.user_id, u.full_name, lp.team_side
+       FROM lobby_positions lp
+       JOIN users u ON u.id = lp.user_id
+       WHERE lp.lobby_id = ?`
+    ).all(lobbyId) as { user_id: string; full_name: string; team_side: string }[];
+
+    const nameToUserId: Record<string, string> = {};
+    lobbyPositionUsers.forEach(row => {
+      nameToUserId[row.full_name] = row.user_id;
+    });
+
+    // Track which user_ids have been inserted to avoid UNIQUE constraint violations
+    const insertedUserIds = new Set<string>();
+
     // Create match_players records
     if (Array.isArray(players) && players.length > 0) {
       for (const p of players) {
+        // userId might be a real ID or a player name — resolve to real ID
+        let resolvedId = p.userId;
+        if (nameToUserId[p.userId]) {
+          resolvedId = nameToUserId[p.userId];
+        } else {
+          // Try direct lookup as user ID
+          const userCheck = db.prepare('SELECT id FROM users WHERE id = ?').get(p.userId);
+          if (!userCheck) continue; // Skip unknown players
+        }
+        if (insertedUserIds.has(resolvedId)) continue;
+        insertedUserIds.add(resolvedId);
+
         db.prepare(
           `INSERT INTO match_players (id, match_id, user_id, team_side, goals, assists, rating)
            VALUES (?, ?, ?, ?, ?, ?, ?)`
-        ).run(uid('mp'), matchId, p.userId, p.teamSide || 'HOME',
+        ).run(uid('mp'), matchId, resolvedId, p.teamSide || 'HOME',
               p.goals ?? 0, p.assists ?? 0, p.rating ?? null);
       }
-    } else {
-      // Auto-populate from lobby participants if no players array provided
+    }
+
+    // Also add any lobby position users not already covered (ensures all players get a record)
+    lobbyPositionUsers.forEach(row => {
+      if (insertedUserIds.has(row.user_id)) return;
+      insertedUserIds.add(row.user_id);
+      db.prepare(
+        `INSERT INTO match_players (id, match_id, user_id, team_side, goals, assists, rating)
+         VALUES (?, ?, ?, ?, 0, 0, NULL)`
+      ).run(uid('mp'), matchId, row.user_id, row.team_side);
+    });
+
+    // Fallback: if no lobby_positions exist, populate from lobby_participants
+    if (insertedUserIds.size === 0) {
       const participants = db.prepare(
         'SELECT user_id FROM lobby_participants WHERE lobby_id = ?'
       ).all(lobbyId) as { user_id: string }[];
