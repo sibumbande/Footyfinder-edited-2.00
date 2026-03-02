@@ -11,6 +11,7 @@ interface RegisterData {
   city?: string;
   position?: string;
   fitnessLevel?: string;
+  avatarBase64?: string;
 }
 
 interface LoginData {

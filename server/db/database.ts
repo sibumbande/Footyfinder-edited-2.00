@@ -142,6 +142,25 @@ async function initDatabase(): Promise<Database> {
       )`,
       "ALTER TABLE team_join_requests ADD COLUMN type TEXT NOT NULL DEFAULT 'JOIN_REQUEST'",
       "ALTER TABLE teams ADD COLUMN motto TEXT",
+      // Photo upload & ID verification
+      "ALTER TABLE users ADD COLUMN is_verified INTEGER NOT NULL DEFAULT 0",
+      "ALTER TABLE users ADD COLUMN id_document_url TEXT",
+      // DM message requests
+      "ALTER TABLE messages ADD COLUMN is_request INTEGER NOT NULL DEFAULT 0",
+      // Notifications table (also in schema.sql for fresh DBs)
+      `CREATE TABLE IF NOT EXISTS notifications (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        is_read INTEGER NOT NULL DEFAULT 0,
+        related_entity_id TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications (user_id, is_read)",
+      "CREATE INDEX IF NOT EXISTS idx_messages_dm ON messages (sender_id, receiver_id)",
     ];
     for (const m of migrations) {
       try { db.exec(m); } catch { /* Column already exists — ignore */ }

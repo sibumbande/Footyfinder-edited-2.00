@@ -16,7 +16,7 @@ router.get('/me', (req, res: Response) => {
 
     const user = db.prepare(
       `SELECT id, email, username, full_name, phone, avatar_url, position,
-              fitness_level, bio, city, created_at
+              fitness_level, bio, city, created_at, is_verified
        FROM users WHERE id = ?`
     ).get(userId) as Record<string, any> | undefined;
 
@@ -50,6 +50,7 @@ router.get('/me', (req, res: Response) => {
         bio: user.bio,
         city: user.city,
         createdAt: user.created_at,
+        isVerified: user.is_verified === 1,
       },
       wallet: wallet ? { balance: wallet.balance, escrow: wallet.escrow } : { balance: 0, escrow: 0 },
       team: membership ? { id: membership.team_id, name: membership.team_name, role: membership.role } : null,
@@ -114,6 +115,31 @@ router.put('/me', (req, res: Response) => {
   } catch (err: any) {
     console.error('[Users] PUT /me error:', err.message);
     res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// ── POST /me/verify-id ───────────────────────────────────────────────────────
+
+router.post('/me/verify-id', (req, res: Response) => {
+  try {
+    const { userId } = req as AuthRequest;
+    const { idPhotoBase64 } = req.body;
+
+    if (!idPhotoBase64 || typeof idPhotoBase64 !== 'string') {
+      res.status(400).json({ error: 'idPhotoBase64 is required' });
+      return;
+    }
+
+    const db = getDb();
+    db.prepare(
+      'UPDATE users SET id_document_url = ?, is_verified = 1 WHERE id = ?'
+    ).run(idPhotoBase64, userId);
+    db.save();
+
+    res.json({ isVerified: true });
+  } catch (err: any) {
+    console.error('[Users] POST /me/verify-id error:', err.message);
+    res.status(500).json({ error: 'Failed to verify identity' });
   }
 });
 

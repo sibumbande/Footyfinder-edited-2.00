@@ -2,7 +2,7 @@
 import React, { useEffect, useCallback, useState } from 'react';
 import { CaptainsDashboardUI } from '../components/CaptainsDashboardUI';
 import { TeamWallet, Team, UserProfileData, SoccerProfile, PlayerPosition } from '../../../types';
-import { getMyTeam } from '../../../frontend/api';
+import { getMyTeam, getTeamTransactions, updateTeam } from '../../../frontend/api';
 import { Loader2 } from 'lucide-react';
 
 interface FormationPoint {
@@ -39,14 +39,18 @@ interface CaptainsDashboardProps {
 }
 
 export const CaptainsDashboard: React.FC<CaptainsDashboardProps> = (props) => {
-  const { squadPool, setSquadPool, assignedPlayers, setAssignedPlayers, onTeamUpdated } = props;
+  const { squadPool, setSquadPool, assignedPlayers, setAssignedPlayers, onTeamUpdated, userTeam } = props;
+  const teamId = userTeam?.id;
   const [loading, setLoading] = useState(true);
+  const [teamTransactions, setTeamTransactions] = useState<{
+    id: string; amount: number; contributorName: string; createdAt: string;
+  }[]>([]);
 
-  // Fetch fresh team data from API on mount
+  // Fetch fresh team data from API on mount (or when active team changes)
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getMyTeam();
+      const data = await getMyTeam(teamId);
       if (onTeamUpdated) {
         const apiTeam: Team = {
           id: data.team.id,
@@ -57,9 +61,11 @@ export const CaptainsDashboard: React.FC<CaptainsDashboardProps> = (props) => {
             id: m.id,
             fullName: m.fullName,
             position: (m.position || 'Midfielder') as PlayerPosition,
-            avatar: m.avatarUrl || 'https://picsum.photos/seed/' + m.id + '/200',
+            avatar: m.avatarUrl || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='100' r='45' fill='%23CBD5E1'/%3E%3Ccircle cx='50' cy='35' r='22' fill='%23CBD5E1'/%3E%3C/svg%3E",
           })),
           wallet: { balance: data.wallet.balance, contributions: [] },
+          motto: data.team.motto || undefined,
+          createdAt: data.team.createdAt || undefined,
         };
         onTeamUpdated(apiTeam);
       }
@@ -68,11 +74,26 @@ export const CaptainsDashboard: React.FC<CaptainsDashboardProps> = (props) => {
     } finally {
       setLoading(false);
     }
-  }, [onTeamUpdated]);
+  }, [onTeamUpdated, teamId]);
 
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+    getTeamTransactions(teamId)
+      .then(data => setTeamTransactions(data.transactions))
+      .catch(() => {});
+  }, [fetchData, teamId]);
+
+  const handleSaveBio = useCallback(async (motto: string) => {
+    if (!userTeam) return;
+    try {
+      await updateTeam(userTeam.id, { motto });
+      if (onTeamUpdated) {
+        onTeamUpdated({ ...userTeam, motto });
+      }
+    } catch {
+      // Silent fail — UI still updates optimistically
+    }
+  }, [userTeam, onTeamUpdated]);
 
   const handleAddMember = (name: string) => {
     const newPlayer: Player = {
@@ -125,6 +146,8 @@ export const CaptainsDashboard: React.FC<CaptainsDashboardProps> = (props) => {
       onAddMember={handleAddMember}
       onAddFriendToSquad={handleAddFriendToSquad}
       onRemoveMember={handleRemoveMember}
+      onSaveBio={handleSaveBio}
+      teamTransactions={teamTransactions}
     />
   );
 };

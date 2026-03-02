@@ -7,12 +7,19 @@ export function createTeam(data: { name: string; primaryColor?: string; secondar
   }>('/teams', data);
 }
 
-export function getMyTeam() {
+export function getMyTeam(teamId?: string) {
+  const qs = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
   return api.get<{
     team: { id: string; name: string; captainId: string; primaryColor: string | null; secondaryColor: string | null; createdAt: string; teamLayout: string | null; motto: string | null };
     members: { id: string; username: string; fullName: string; avatarUrl: string | null; position: string | null; role: string }[];
     wallet: { balance: number };
-  }>('/teams/my-team');
+  }>(`/teams/my-team${qs}`);
+}
+
+export function getMyTeams() {
+  return api.get<{
+    teams: { id: string; name: string; role: string; primaryColor: string | null; secondaryColor: string | null; createdAt: string }[];
+  }>('/teams/my-teams');
 }
 
 export function getTeamById(id: string) {
@@ -29,6 +36,10 @@ export function joinTeam(id: string) {
 
 export function leaveTeam(id: string) {
   return api.post<{ message: string }>(`/teams/${id}/leave`);
+}
+
+export function deleteTeam(id: string) {
+  return api.delete<{ message: string }>(`/teams/${id}`);
 }
 
 export function updateTeam(id: string, data: { name?: string; primaryColor?: string; secondaryColor?: string; motto?: string }) {
@@ -54,6 +65,7 @@ export function getAllTeams() {
       id: string; name: string; captainId: string; captainName: string;
       city: string | null; primaryColor: string | null;
       memberCount: number; isRecruiting: boolean; hasRequested: boolean;
+      isMember: boolean;
     }[];
   }>('/teams/all');
 }
@@ -97,7 +109,8 @@ export function respondToTeamInvite(inviteId: string, accept: boolean) {
   return api.put<{ message: string }>(`/teams/invites/${inviteId}`, { accept });
 }
 
-export function getTeamTransactions() {
+export function getTeamTransactions(teamId?: string) {
+  const qs = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
   return api.get<{
     transactions: {
       id: string;
@@ -106,5 +119,5 @@ export function getTeamTransactions() {
       description: string;
       createdAt: string;
     }[];
-  }>('/teams/my-team/transactions');
+  }>(`/teams/my-team/transactions${qs}`);
 }

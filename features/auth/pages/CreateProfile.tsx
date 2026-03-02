@@ -69,6 +69,11 @@ export const CreateProfile: React.FC<CreateProfileProps> = ({ onProfileCreated, 
       return;
     }
 
+    if (!formData.facePhoto) {
+      setError('A face photo (selfie) is required for identity verification.');
+      return;
+    }
+
     if (password.length < 6) {
       setError('Password must be at least 6 characters.');
       return;
@@ -77,6 +82,14 @@ export const CreateProfile: React.FC<CreateProfileProps> = ({ onProfileCreated, 
     setLoading(true);
 
     try {
+      // Convert face photo to base64 data URL for storage as avatar
+      const avatarBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(formData.facePhoto!);
+      });
+
       const user = await register({
         email,
         password,
@@ -84,6 +97,7 @@ export const CreateProfile: React.FC<CreateProfileProps> = ({ onProfileCreated, 
         username,
         position: formData.position || undefined,
         fitnessLevel: formData.fitnessLevel || undefined,
+        avatarBase64,
       });
       onProfileCreated(user);
     } catch (err) {
@@ -186,7 +200,7 @@ export const CreateProfile: React.FC<CreateProfileProps> = ({ onProfileCreated, 
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Face Photo (Selfie)</label>
+                <label className="block text-sm font-medium text-gray-700">Face Photo (Selfie) <span className="text-red-500">*</span></label>
                 <div
                   className={`relative aspect-square rounded-xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-colors ${formData.facePhotoPreview ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400 bg-gray-50'}`}
                   onClick={() => faceInputRef.current?.click()}

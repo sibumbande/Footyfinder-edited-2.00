@@ -494,3 +494,27 @@ CREATE INDEX IF NOT EXISTS idx_player_reviews_reviewee    ON player_reviews (rev
 CREATE INDEX IF NOT EXISTS idx_player_reviews_session     ON player_reviews (session_type, session_id);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_context      ON chat_messages (context_type, context_id);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_sender       ON chat_messages (sender_id);
+CREATE INDEX IF NOT EXISTS idx_messages_dm                ON messages (sender_id, receiver_id);
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 21. notifications
+-- In-app notification feed for each user.
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS notifications (
+    id                 TEXT PRIMARY KEY,
+    user_id            TEXT NOT NULL,
+    type               TEXT NOT NULL CHECK (type IN (
+                           'FRIEND_REQUEST', 'FRIEND_ACCEPTED',
+                           'TEAM_INVITE', 'TEAM_JOIN_ACCEPTED', 'TEAM_JOIN_DECLINED',
+                           'TEAM_JOIN_REQUEST', 'MATCH_TODAY',
+                           'TEAM_MESSAGE', 'TEAM_BIO_UPDATE', 'DM_REQUEST'
+                       )),
+    title              TEXT NOT NULL,
+    body               TEXT NOT NULL,
+    is_read            INTEGER NOT NULL DEFAULT 0,
+    related_entity_id  TEXT,
+    created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications (user_id, is_read);

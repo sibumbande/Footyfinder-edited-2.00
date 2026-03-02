@@ -34,13 +34,6 @@ router.post('/', (req, res: Response) => {
       return;
     }
 
-    // Check user doesn't already belong to a team
-    const existing = getUserTeamMembership(userId);
-    if (existing) {
-      res.status(400).json({ error: `You already belong to team "${existing.team_name}"` });
-      return;
-    }
-
     const db = getDb();
 
     // Check name uniqueness
@@ -95,16 +88,32 @@ router.get('/my-team', (req, res: Response) => {
     const { userId } = req as AuthRequest;
     const db = getDb();
 
-    const membership = getUserTeamMembership(userId);
-    if (!membership) {
-      res.status(404).json({ error: 'You are not in a team' });
-      return;
+    // Optional ?teamId= param to fetch a specific team by ID (user must be a member)
+    const teamIdParam = req.query.teamId as string | undefined;
+    let activeTeamId: string;
+
+    if (teamIdParam) {
+      const memberCheck = db.prepare(
+        'SELECT team_id FROM team_members WHERE team_id = ? AND user_id = ?'
+      ).get(teamIdParam, userId) as { team_id: string } | undefined;
+      if (!memberCheck) {
+        res.status(404).json({ error: 'You are not a member of this team' });
+        return;
+      }
+      activeTeamId = teamIdParam;
+    } else {
+      const membership = getUserTeamMembership(userId);
+      if (!membership) {
+        res.status(404).json({ error: 'You are not in a team' });
+        return;
+      }
+      activeTeamId = membership.team_id;
     }
 
     const team = db.prepare(
       `SELECT id, name, captain_id, primary_color, secondary_color, created_at, team_layout, motto
        FROM teams WHERE id = ?`
-    ).get(membership.team_id) as Record<string, any>;
+    ).get(activeTeamId) as Record<string, any>;
 
     const members = db.prepare(
       `SELECT u.id, u.username, u.full_name, u.avatar_url, u.position, tm.role
@@ -112,11 +121,11 @@ router.get('/my-team', (req, res: Response) => {
        JOIN users u ON u.id = tm.user_id
        WHERE tm.team_id = ?
        ORDER BY tm.role DESC, tm.joined_at`
-    ).all(membership.team_id) as Record<string, any>[];
+    ).all(activeTeamId) as Record<string, any>[];
 
     const wallet = db.prepare(
       'SELECT balance FROM team_wallets WHERE team_id = ?'
-    ).get(membership.team_id) as { balance: number } | undefined;
+    ).get(activeTeamId) as { balance: number } | undefined;
 
     res.json({
       team: {
@@ -152,10 +161,25 @@ router.get('/my-team/transactions', (req, res: Response) => {
     const { userId } = req as AuthRequest;
     const db = getDb();
 
-    const membership = getUserTeamMembership(userId);
-    if (!membership) {
-      res.status(404).json({ error: 'You are not in a team' });
-      return;
+    const teamIdParam = req.query.teamId as string | undefined;
+    let activeTeamId: string;
+
+    if (teamIdParam) {
+      const memberCheck = db.prepare(
+        'SELECT team_id FROM team_members WHERE team_id = ? AND user_id = ?'
+      ).get(teamIdParam, userId) as { team_id: string } | undefined;
+      if (!memberCheck) {
+        res.status(404).json({ error: 'You are not a member of this team' });
+        return;
+      }
+      activeTeamId = teamIdParam;
+    } else {
+      const membership = getUserTeamMembership(userId);
+      if (!membership) {
+        res.status(404).json({ error: 'You are not in a team' });
+        return;
+      }
+      activeTeamId = membership.team_id;
     }
 
     const rows = db.prepare(
@@ -167,7 +191,7 @@ router.get('/my-team/transactions', (req, res: Response) => {
        WHERE t.type = 'TEAM_CONTRIBUTION'
        ORDER BY t.created_at DESC
        LIMIT 50`
-    ).all(membership.team_id) as Record<string, any>[];
+    ).all(activeTeamId) as Record<string, any>[];
 
     res.json({
       transactions: rows.map(r => ({
@@ -181,6 +205,37 @@ router.get('/my-team/transactions', (req, res: Response) => {
   } catch (err: any) {
     console.error('[Teams] GET /my-team/transactions error:', err.message);
     res.status(500).json({ error: 'Failed to fetch team transactions' });
+  }
+});
+
+// ── GET /my-teams — List ALL teams the user belongs to ──────────────────────
+
+router.get('/my-teams', (req, res: Response) => {
+  try {
+    const { userId } = req as AuthRequest;
+    const db = getDb();
+
+    const rows = db.prepare(
+      `SELECT t.id, t.name, t.primary_color, t.secondary_color, t.created_at, tm.role
+       FROM team_members tm
+       JOIN teams t ON t.id = tm.team_id
+       WHERE tm.user_id = ?
+       ORDER BY CASE WHEN tm.role = 'CAPTAIN' THEN 0 ELSE 1 END, tm.joined_at`
+    ).all(userId) as Record<string, any>[];
+
+    res.json({
+      teams: rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        role: r.role,
+        primaryColor: r.primary_color || null,
+        secondaryColor: r.secondary_color || null,
+        createdAt: r.created_at,
+      })),
+    });
+  } catch (err: any) {
+    console.error('[Teams] GET /my-teams error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch user teams' });
   }
 });
 
@@ -261,6 +316,34 @@ router.post('/:id/leave', (req, res: Response) => {
   } catch (err: any) {
     console.error('[Teams] POST /:id/leave error:', err.message);
     res.status(500).json({ error: 'Failed to leave team' });
+  }
+});
+
+// ── DELETE /:id — Disband a team (captain only) ─────────────────────────────
+
+router.delete('/:id', (req, res: Response) => {
+  try {
+    const { userId } = req as AuthRequest;
+    const { id } = req.params;
+    const db = getDb();
+
+    const membership = db.prepare(
+      'SELECT role FROM team_members WHERE team_id = ? AND user_id = ?'
+    ).get(id, userId) as { role: string } | undefined;
+
+    if (!membership || membership.role !== 'CAPTAIN') {
+      res.status(403).json({ error: 'Only the captain can delete this team' });
+      return;
+    }
+
+    // CASCADE handles team_members, team_wallets, team_join_requests, lobby associations
+    db.prepare('DELETE FROM teams WHERE id = ?').run(id);
+    db.save();
+
+    res.json({ message: 'Team deleted successfully' });
+  } catch (err: any) {
+    console.error('[Teams] DELETE /:id error:', err.message);
+    res.status(500).json({ error: 'Failed to delete team' });
   }
 });
 
@@ -448,11 +531,12 @@ router.get('/all', (req, res: Response) => {
       `SELECT t.id, t.name, t.captain_id, t.primary_color, t.is_recruiting,
               u.full_name AS captain_name, u.city,
               (SELECT count(*) FROM team_members tm WHERE tm.team_id = t.id) AS member_count,
-              (SELECT 1 FROM team_join_requests jr WHERE jr.team_id = t.id AND jr.user_id = ? AND jr.status = 'PENDING' AND jr.type = 'JOIN_REQUEST') AS has_requested
+              (SELECT 1 FROM team_join_requests jr WHERE jr.team_id = t.id AND jr.user_id = ? AND jr.status = 'PENDING' AND jr.type = 'JOIN_REQUEST') AS has_requested,
+              (SELECT 1 FROM team_members tm2 WHERE tm2.team_id = t.id AND tm2.user_id = ?) AS is_member
        FROM teams t
        JOIN users u ON u.id = t.captain_id
        ORDER BY t.name`
-    ).all(userId) as Record<string, any>[];
+    ).all(userId, userId) as Record<string, any>[];
 
     res.json({
       teams: rows.map(r => ({
@@ -465,6 +549,7 @@ router.get('/all', (req, res: Response) => {
         memberCount: r.member_count,
         isRecruiting: !!r.is_recruiting,
         hasRequested: !!r.has_requested,
+        isMember: !!r.is_member,
       })),
     });
   } catch (err: any) {
@@ -523,10 +608,6 @@ router.post('/:id/invite', (req, res: Response) => {
          AND status = 'ACCEPTED'`
     ).get(userId, friendId, friendId, userId);
     if (!areFriends) { res.status(400).json({ error: 'You can only invite friends to your team' }); return; }
-
-    // Target must not already be in a team
-    const existingTeam = getUserTeamMembership(friendId);
-    if (existingTeam) { res.status(400).json({ error: `${target.full_name} already belongs to team "${existingTeam.team_name}"` }); return; }
 
     // Check for existing record for this (team, user) pair
     const existingReq = db.prepare(
@@ -610,25 +691,34 @@ router.get('/join-requests', (req, res: Response) => {
     const { userId } = req as AuthRequest;
     const db = getDb();
 
-    const membership = getUserTeamMembership(userId);
-    if (!membership || membership.role !== 'CAPTAIN') {
+    // Find ALL teams where this user is captain (supports multi-team captains)
+    const captainedTeams = db.prepare(
+      `SELECT team_id FROM team_members WHERE user_id = ? AND role = 'CAPTAIN'`
+    ).all(userId) as { team_id: string }[];
+
+    if (captainedTeams.length === 0) {
       res.json({ requests: [] });
       return;
     }
 
+    const placeholders = captainedTeams.map(() => '?').join(', ');
     const rows = db.prepare(
-      `SELECT jr.id AS request_id, jr.created_at,
-              u.id AS user_id, u.full_name, u.avatar_url, u.position
+      `SELECT jr.id AS request_id, jr.created_at, jr.team_id,
+              u.id AS user_id, u.full_name, u.avatar_url, u.position,
+              t.name AS team_name
        FROM team_join_requests jr
        JOIN users u ON u.id = jr.user_id
-       WHERE jr.team_id = ? AND jr.status = 'PENDING' AND jr.type = 'JOIN_REQUEST'
+       JOIN teams t ON t.id = jr.team_id
+       WHERE jr.team_id IN (${placeholders}) AND jr.status = 'PENDING' AND jr.type = 'JOIN_REQUEST'
        ORDER BY jr.created_at ASC`
-    ).all(membership.team_id) as Record<string, any>[];
+    ).all(...captainedTeams.map(t => t.team_id)) as Record<string, any>[];
 
     res.json({
       requests: rows.map(r => ({
         requestId: r.request_id,
         createdAt: r.created_at,
+        teamId: r.team_id,
+        teamName: r.team_name,
         user: { id: r.user_id, fullName: r.full_name, avatarUrl: r.avatar_url, position: r.position },
       })),
     });

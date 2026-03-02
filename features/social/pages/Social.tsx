@@ -19,11 +19,14 @@ export interface TeamListing {
   memberCount: number;
   isRecruiting: boolean;
   hasRequested: boolean;
+  isMember: boolean;
 }
 
 export interface JoinRequest {
   requestId: string;
   createdAt: string;
+  teamId: string;
+  teamName: string;
   user: { id: string; fullName: string; avatarUrl: string | null; position: string | null };
 }
 
@@ -73,7 +76,7 @@ export const Social: React.FC<SocialProps> = ({
     id: u.id,
     fullName: u.fullName,
     position: (u.position || 'Midfielder') as PlayerPosition,
-    avatar: u.avatarUrl || `https://picsum.photos/seed/${u.id}/200`,
+    avatar: u.avatarUrl || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='100' r='45' fill='%23CBD5E1'/%3E%3Ccircle cx='50' cy='35' r='22' fill='%23CBD5E1'/%3E%3C/svg%3E",
   }), []);
 
   const fetchAll = useCallback(async () => {

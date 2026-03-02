@@ -41,6 +41,8 @@ import fieldRoutes from './routes/fields.js';
 import paymentRoutes from './routes/payments.js';
 import socialRoutes from './routes/social.js';
 import trainingRoutes from './routes/training.js';
+import messagesRoutes from './routes/messages.js';
+import notificationsRoutes from './routes/notifications.js';
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -51,6 +53,8 @@ app.use('/api/fields', fieldRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/social', socialRoutes);
 app.use('/api/training', trainingRoutes);
+app.use('/api/messages', messagesRoutes);
+app.use('/api/notifications', notificationsRoutes);
 
 // ── Health Check ────────────────────────────────────────────────────────────
 

@@ -122,6 +122,7 @@ export interface UserProfileData {
   city?: string;
   phone?: string;
   username?: string;
+  isVerified?: boolean;
 }
 
 export interface FieldListing {
@@ -165,9 +166,42 @@ export interface MatchRecord {
   fieldName: string;
   scoreA: number;
   scoreB: number;
-  teamA: string[]; 
+  teamA: string[];
   teamB: string[];
   scorers: { playerId: string, goals: number }[];
   assisters: { playerId: string, assists: number }[];
   isDraft?: boolean;
+}
+
+export interface DMMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderAvatar: string;
+  recipientId: string;
+  content: string;
+  createdAt: string;
+  isRequest?: boolean;
+}
+
+export interface DMConversation {
+  userId: string;
+  fullName: string;
+  avatar: string;
+  lastMessage: string;
+  lastAt: string;
+  unreadCount: number;
+  isPending?: boolean;
+}
+
+export interface AppNotification {
+  id: string;
+  type: 'FRIEND_REQUEST' | 'FRIEND_ACCEPTED' | 'TEAM_INVITE' | 'TEAM_JOIN_ACCEPTED'
+      | 'TEAM_JOIN_DECLINED' | 'TEAM_JOIN_REQUEST' | 'MATCH_TODAY'
+      | 'TEAM_MESSAGE' | 'TEAM_BIO_UPDATE' | 'DM_REQUEST';
+  title: string;
+  body: string;
+  isRead: boolean;
+  relatedEntityId?: string;
+  createdAt: string;
 }

@@ -1,10 +1,11 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  Trophy, Plus, Move, Check, UserPlus, X, Users, Trash2, Wallet, ArrowUpRight, Shirt, Heart, Search, MessageSquare, ArrowLeft, Send, Zap
+  Trophy, Plus, Move, Check, UserPlus, X, Users, Trash2, Wallet, ArrowUpRight, Shirt, Heart, Search, MessageSquare, ArrowLeft, Send, Zap, Eye, History, Save, Pencil
 } from 'lucide-react';
 import { TacticalPitch } from '../../../components/domain/TacticalPitch';
 import { TeamWallet, Team, UserProfileData, SoccerProfile } from '../../../types';
+import { UserProfileModal } from '../../../components/domain/UserProfileModal';
 
 interface FormationPoint {
   id: string;
@@ -32,12 +33,20 @@ interface CaptainsDashboardUIProps {
   teamWallet: TeamWallet;
   onFundTeamWallet: (amount: number) => void;
   onSave?: () => void;
+  onSaveBio?: (motto: string) => void;
   userTeam?: Team;
   userProfile: UserProfileData;
   friends: SoccerProfile[];
   messages: any[];
   onSendMessage: (text: string) => void;
+  teamTransactions?: { id: string; amount: number; contributorName: string; createdAt: string }[];
 }
+
+const formatTeamDate = (dateStr?: string) => {
+  if (!dateStr) return 'Unknown';
+  const d = new Date(dateStr);
+  return d.toLocaleString('default', { month: 'short', year: 'numeric' }).toUpperCase();
+};
 
 export const CaptainsDashboardUI: React.FC<CaptainsDashboardUIProps> = ({
   assignedPlayers,
@@ -51,11 +60,13 @@ export const CaptainsDashboardUI: React.FC<CaptainsDashboardUIProps> = ({
   teamWallet,
   onFundTeamWallet,
   onSave,
+  onSaveBio,
   userTeam,
   userProfile,
   friends,
   messages,
-  onSendMessage
+  onSendMessage,
+  teamTransactions = [],
 }) => {
   const [activeTab, setActiveTab] = useState<'tactics' | 'comms'>('tactics');
   const [newMemberName, setNewMemberName] = useState('');
@@ -75,6 +86,17 @@ export const CaptainsDashboardUI: React.FC<CaptainsDashboardUIProps> = ({
   // Friends Recruitment modal state
   const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [friendSearchTerm, setFriendSearchTerm] = useState('');
+
+  // Team bio / motto editing
+  const [editingMotto, setEditingMotto] = useState(false);
+  const [mottoInput, setMottoInput] = useState(userTeam?.motto || '');
+
+  // Profile view modal
+  const [viewingUserId, setViewingUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMottoInput(userTeam?.motto || '');
+  }, [userTeam?.motto]);
 
   useEffect(() => {
     if (showSaveSuccess) {
@@ -168,6 +190,11 @@ export const CaptainsDashboardUI: React.FC<CaptainsDashboardUIProps> = ({
     setNewMessage('');
   };
 
+  const handleSaveMotto = () => {
+    onSaveBio?.(mottoInput);
+    setEditingMotto(false);
+  };
+
   const availablePlayers = squadPool.filter(p => !Object.values(assignedPlayers).includes(p.name));
 
   const recruitableFriends = friends.filter(friend =>
@@ -179,11 +206,17 @@ export const CaptainsDashboardUI: React.FC<CaptainsDashboardUIProps> = ({
     <div className={`min-h-screen bg-slate-50 pb-24 md:pt-20 transition-all ${draggingId ? 'cursor-grabbing select-none' : ''}`}>
       <div className="max-w-7xl mx-auto px-4 py-8">
 
+        {/* Team Header */}
         <div className="bg-white rounded-[48px] p-10 md:p-12 border border-slate-100 mb-8 flex flex-col md:flex-row items-center justify-between shadow-sm gap-6 relative overflow-hidden">
            <div className="relative z-10">
               <div className="flex items-center gap-4 mb-4">
-                 <div className="w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg border-4 border-white" style={{ backgroundColor: userTeam?.homeColor }}>
-                    <Shirt size={24} className={userTeam?.homeColor === '#ffffff' ? 'text-slate-900' : 'text-white'} />
+                 <div className="flex gap-2 items-end">
+                   <div className="w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg border-4 border-white" style={{ backgroundColor: userTeam?.homeColor }}>
+                     <Shirt size={24} className={userTeam?.homeColor === '#ffffff' ? 'text-slate-900' : 'text-white'} />
+                   </div>
+                   {userTeam?.awayColor && userTeam.awayColor !== userTeam.homeColor && (
+                     <div className="w-6 h-6 rounded-lg border-2 border-slate-200 shadow-sm" style={{ backgroundColor: userTeam.awayColor }} title="Away kit" />
+                   )}
                  </div>
                  <h1 className="text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">{userTeam?.name || "Captain's Dashboard"}</h1>
               </div>
@@ -200,10 +233,71 @@ export const CaptainsDashboardUI: React.FC<CaptainsDashboardUIProps> = ({
                 onClick={handleSaveLayout}
                 className="bg-slate-900 text-white px-10 py-5 rounded-3xl font-black uppercase text-xs tracking-widest hover:bg-blue-600 transition-all shadow-xl active:scale-95"
               >
-                Save Layout
+                {showSaveSuccess ? '✓ Saved' : 'Save Layout'}
               </button>
            </div>
            <div className="absolute top-0 right-0 w-64 h-64 bg-slate-900/5 rounded-full -mr-32 -mt-32 blur-3xl"></div>
+        </div>
+
+        {/* Team Bio Card */}
+        <div className="bg-white rounded-[40px] p-8 border border-slate-100 mb-8 shadow-sm">
+          <div className="flex items-start justify-between gap-6">
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex gap-2">
+                  <div className="w-10 h-10 rounded-xl border-2 border-slate-100 shadow-sm" style={{ backgroundColor: userTeam?.homeColor || '#2563eb' }} title="Home kit" />
+                  {userTeam?.awayColor && userTeam.awayColor !== userTeam?.homeColor && (
+                    <div className="w-10 h-10 rounded-xl border-2 border-slate-100 shadow-sm" style={{ backgroundColor: userTeam.awayColor }} title="Away kit" />
+                  )}
+                </div>
+                <div>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Founded</p>
+                  <p className="text-sm font-black text-slate-900">{formatTeamDate(userTeam?.createdAt)}</p>
+                </div>
+              </div>
+
+              {editingMotto ? (
+                <div className="space-y-3">
+                  <textarea
+                    value={mottoInput}
+                    onChange={e => setMottoInput(e.target.value)}
+                    placeholder="Enter your team motto..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-3 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    rows={2}
+                    maxLength={120}
+                    autoFocus
+                  />
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleSaveMotto}
+                      className="px-6 py-2 bg-slate-900 text-white rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-600 transition-all flex items-center gap-2"
+                    >
+                      <Save size={14} /> Save Motto
+                    </button>
+                    <button
+                      onClick={() => { setEditingMotto(false); setMottoInput(userTeam?.motto || ''); }}
+                      className="px-6 py-2 bg-slate-100 text-slate-500 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-all"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3">
+                  <p className="text-sm text-slate-600 italic flex-1">
+                    {userTeam?.motto ? `"${userTeam.motto}"` : <span className="text-slate-300">No motto set yet — click edit to add one</span>}
+                  </p>
+                  <button
+                    onClick={() => setEditingMotto(true)}
+                    className="p-2 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all shrink-0"
+                    title="Edit motto"
+                  >
+                    <Pencil size={16} />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Navigation Tabs */}
@@ -275,20 +369,26 @@ export const CaptainsDashboardUI: React.FC<CaptainsDashboardUIProps> = ({
                             </div>
                          </div>
                          <div className="space-y-4">
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Contribution History</p>
+                            <div className="flex items-center gap-2 px-2 mb-2">
+                              <History size={14} className="text-slate-400" />
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Contribution History</p>
+                            </div>
                             <div className="space-y-3 max-h-[220px] overflow-y-auto pr-2 custom-scrollbar">
-                               {teamWallet.contributions.length === 0 ? (
+                               {teamTransactions.length === 0 ? (
                                  <div className="py-12 text-center text-slate-300">
                                     <p className="text-[9px] font-black uppercase">No contributions yet</p>
                                  </div>
                                ) : (
-                                 [...teamWallet.contributions].reverse().map((c, i) => (
-                                   <div key={i} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-blue-100 transition-colors">
+                                 teamTransactions.map((tx) => (
+                                   <div key={tx.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-blue-100 transition-colors">
                                       <div className="flex items-center gap-3">
-                                         <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-[10px] font-black text-slate-400 border border-slate-100">{c.name.charAt(0)}</div>
-                                         <span className="text-xs font-black text-slate-900 uppercase">{c.name}</span>
+                                         <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-[10px] font-black text-slate-400 border border-slate-100">{tx.contributorName.charAt(0)}</div>
+                                         <div>
+                                           <span className="text-xs font-black text-slate-900 uppercase block">{tx.contributorName}</span>
+                                           <span className="text-[8px] font-bold text-slate-400 uppercase">{new Date(tx.createdAt).toLocaleDateString()}</span>
+                                         </div>
                                       </div>
-                                      <span className="text-xs font-black text-emerald-600">+R{c.amount}</span>
+                                      <span className="text-xs font-black text-emerald-600">+R{tx.amount.toFixed(0)}</span>
                                    </div>
                                  ))
                                )}
@@ -358,6 +458,13 @@ export const CaptainsDashboardUI: React.FC<CaptainsDashboardUIProps> = ({
                                </div>
                                <div className="flex items-center gap-2">
                                   {isAssigned && <div className="p-1 bg-emerald-100 text-emerald-600 rounded-lg"><Check size={12} strokeWidth={4} /></div>}
+                                  <button
+                                    onClick={() => setViewingUserId(player.id)}
+                                    className="p-2 text-slate-200 hover:text-blue-500 transition-colors opacity-0 group-hover:opacity-100"
+                                    title="View profile"
+                                  >
+                                    <Eye size={14} />
+                                  </button>
                                   <button onClick={() => onRemoveMember(player.id)} className="p-2 text-slate-200 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100">
                                      <Trash2 size={16} />
                                   </button>
@@ -529,7 +636,7 @@ export const CaptainsDashboardUI: React.FC<CaptainsDashboardUIProps> = ({
         </div>
       )}
 
-      {/* Contribution Modal (Reusable Logic) */}
+      {/* Contribution Modal */}
       {showFundModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md animate-fade-in">
            <div className="bg-white rounded-[64px] p-12 max-w-md w-full shadow-3xl animate-scale-in relative overflow-hidden font-inter">
@@ -579,6 +686,9 @@ export const CaptainsDashboardUI: React.FC<CaptainsDashboardUIProps> = ({
            </div>
         </div>
       )}
+
+      {/* User Profile Modal */}
+      <UserProfileModal userId={viewingUserId} onClose={() => setViewingUserId(null)} />
     </div>
   );
 };

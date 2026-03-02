@@ -1,19 +1,12 @@
 
 import React, { useState } from 'react';
 import {
-  Trophy, Users, MessageSquare, MapPin, Clock,
+  Trophy, Users, MessageSquare, Clock,
   ShieldCheck, Wallet, ChevronRight, CheckCircle2,
-  Award, Send, ArrowLeft, Check, Shirt, ArrowUpRight, Plus, X, Zap, Heart
+  Award, Send, ArrowLeft, Check, Shirt, ArrowUpRight, Plus, X, Zap, Heart, Eye, History
 } from 'lucide-react';
 import { UserProfileData, Team, TeamWallet } from '../../../types';
-
-const PLAYER_BENCH = [
-  { id: 'b1', name: 'Zuki Nonxuba', avatar: 'https://i.pravatar.cc/100?u=zuki', role: 'Defender' },
-  { id: 'b2', name: 'Ace Magashule', avatar: 'https://i.pravatar.cc/100?u=ace_m', role: 'Midfielder' },
-  { id: 'b3', name: 'Lefa Mokoena', avatar: 'https://i.pravatar.cc/100?u=lefa', role: 'Forward' },
-  { id: 'b4', name: 'Mandla Masango', avatar: 'https://i.pravatar.cc/100?u=mandla', role: 'Midfielder' },
-  { id: 'b5', name: 'George Lebese', avatar: 'https://i.pravatar.cc/100?u=george', role: 'Forward' },
-];
+import { UserProfileModal } from '../../../components/domain/UserProfileModal';
 
 interface PlayerDashboardUIProps {
   activeTab: 'match' | 'comms';
@@ -30,7 +23,15 @@ interface PlayerDashboardUIProps {
   userTeam: Team;
   teamWallet: TeamWallet;
   onContributeToTeam: (amount: number) => void;
+  squadPool?: { id: string; name: string; role: string; avatar?: string }[];
+  teamTransactions?: { id: string; amount: number; contributorName: string; createdAt: string }[];
 }
+
+const formatTeamDate = (dateStr?: string) => {
+  if (!dateStr) return 'Unknown';
+  const d = new Date(dateStr);
+  return d.toLocaleString('default', { month: 'short', year: 'numeric' }).toUpperCase();
+};
 
 export const PlayerDashboardUI: React.FC<PlayerDashboardUIProps> = ({
   activeTab,
@@ -46,10 +47,13 @@ export const PlayerDashboardUI: React.FC<PlayerDashboardUIProps> = ({
   userProfile,
   userTeam,
   teamWallet,
-  onContributeToTeam
+  onContributeToTeam,
+  squadPool = [],
+  teamTransactions = [],
 }) => {
   const [showFundModal, setShowFundModal] = useState(false);
   const [fundAmount, setFundAmount] = useState('50');
+  const [viewingUserId, setViewingUserId] = useState<string | null>(null);
 
   const handleFund = () => {
     const amount = parseFloat(fundAmount);
@@ -57,6 +61,10 @@ export const PlayerDashboardUI: React.FC<PlayerDashboardUIProps> = ({
     onContributeToTeam(amount);
     setShowFundModal(false);
   };
+
+  // Substitutes = squad pool members NOT assigned in the formation
+  const assignedNames = new Set(Object.values(assignedPlayers));
+  const substitutes = squadPool.filter(p => !assignedNames.has(p.name));
 
   return (
     <div className="min-h-screen bg-slate-50 pb-24 md:pt-20 animate-fade-in font-inter">
@@ -66,8 +74,13 @@ export const PlayerDashboardUI: React.FC<PlayerDashboardUIProps> = ({
         <div className="bg-slate-900 rounded-[48px] p-10 md:p-12 text-white shadow-2xl overflow-hidden relative border border-slate-800 mb-10">
            <div className="relative z-10 flex flex-col md:flex-row justify-between items-center gap-10">
               <div className="flex items-center gap-8">
-                 <div className="w-24 h-24 rounded-[32px] flex items-center justify-center text-4xl font-black shadow-2xl border-4 border-white/20 transition-all" style={{ backgroundColor: userTeam.homeColor }}>
-                   <Shirt size={40} className={userTeam.homeColor === '#ffffff' ? 'text-slate-900' : 'text-white'} />
+                 <div className="flex gap-3 items-end">
+                   <div className="w-20 h-20 rounded-[28px] flex items-center justify-center shadow-2xl border-4 border-white/20" style={{ backgroundColor: userTeam.homeColor }}>
+                     <Shirt size={34} className={userTeam.homeColor === '#ffffff' ? 'text-slate-900' : 'text-white'} />
+                   </div>
+                   {userTeam.awayColor && userTeam.awayColor !== userTeam.homeColor && (
+                     <div className="w-8 h-8 rounded-xl border-2 border-white/20 shadow-lg" style={{ backgroundColor: userTeam.awayColor }} title="Away kit" />
+                   )}
                  </div>
                  <div>
                     <div className="flex items-center gap-3 mb-2">
@@ -77,12 +90,15 @@ export const PlayerDashboardUI: React.FC<PlayerDashboardUIProps> = ({
                     <div className="flex items-center gap-4 text-xs font-black text-slate-400 uppercase tracking-widest">
                        <span className="flex items-center gap-2"><Users size={14} className="text-blue-500" /> {userTeam.members.length} Active Squad</span>
                     </div>
+                    {userTeam.motto && (
+                      <p className="text-[11px] text-slate-300 italic mt-2 max-w-xs">"{userTeam.motto}"</p>
+                    )}
                  </div>
               </div>
               <div className="flex gap-4">
                  <div className="bg-blue-600 p-6 rounded-[32px] text-center min-w-[140px] shadow-xl shadow-blue-500/20">
-                    <p className="text-[9px] font-black uppercase text-blue-200 tracking-[0.2em] mb-2">Member Since</p>
-                    <p className="text-xl font-black uppercase">MAR 2024</p>
+                    <p className="text-[9px] font-black uppercase text-blue-200 tracking-[0.2em] mb-2">Est.</p>
+                    <p className="text-xl font-black uppercase">{formatTeamDate(userTeam.createdAt)}</p>
                  </div>
               </div>
            </div>
@@ -147,20 +163,45 @@ export const PlayerDashboardUI: React.FC<PlayerDashboardUIProps> = ({
                       })}
                    </div>
 
+                   {/* Squad Substitutes */}
                    <div className={`mt-12 bg-slate-50 rounded-[40px] p-8 border border-slate-100 transition-all ${isFormationLocked ? 'opacity-60 grayscale' : ''}`}>
                       <div className="flex items-center justify-between mb-8 px-4">
                         <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight">Squad Substitutes</h3>
                         <Users size={20} className="text-slate-300" />
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                        {PLAYER_BENCH.map(player => (
-                           <div key={player.id} className="bg-white border border-slate-100 rounded-[32px] p-6 flex flex-col items-center shadow-sm">
-                              <img src={player.avatar} className="w-12 h-12 rounded-full border-2 border-slate-50 mb-3" alt="" />
-                              <p className="text-[10px] font-black text-slate-900 uppercase tracking-tight mb-1 text-center truncate w-full">{player.name.split(' ')[0]}</p>
-                              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{player.role}</p>
-                           </div>
-                        ))}
-                      </div>
+                      {substitutes.length === 0 ? (
+                        <div className="py-8 text-center text-slate-300">
+                          <p className="text-[10px] font-black uppercase tracking-widest">
+                            {squadPool.length === 0 ? 'No squad members yet' : 'All squad members are in the starting lineup'}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                          {substitutes.map(player => (
+                             <div
+                               key={player.id}
+                               className="bg-white border border-slate-100 rounded-[32px] p-6 flex flex-col items-center shadow-sm group relative"
+                             >
+                                {player.avatar ? (
+                                  <img src={player.avatar} className="w-12 h-12 rounded-full border-2 border-slate-50 mb-3" alt="" />
+                                ) : (
+                                  <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mb-3 text-slate-400 font-black text-lg border-2 border-slate-50">
+                                    {player.name.charAt(0)}
+                                  </div>
+                                )}
+                                <p className="text-[10px] font-black text-slate-900 uppercase tracking-tight mb-1 text-center truncate w-full">{player.name.split(' ')[0]}</p>
+                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{player.role}</p>
+                                <button
+                                  onClick={() => setViewingUserId(player.id)}
+                                  className="absolute top-3 right-3 p-1.5 bg-slate-50 text-slate-300 rounded-lg opacity-0 group-hover:opacity-100 hover:text-blue-500 hover:bg-blue-50 transition-all"
+                                  title="View profile"
+                                >
+                                  <Eye size={12} />
+                                </button>
+                             </div>
+                          ))}
+                        </div>
+                      )}
                    </div>
                 </div>
              </div>
@@ -202,6 +243,32 @@ export const PlayerDashboardUI: React.FC<PlayerDashboardUIProps> = ({
                             <Plus size={18} /> Contribute to Funds
                          </button>
                       </div>
+
+                      {/* Team Contribution History */}
+                      {teamTransactions.length > 0 && (
+                        <div>
+                          <div className="flex items-center gap-3 mb-4 px-2">
+                            <History size={16} className="text-slate-400" />
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Contribution History</p>
+                          </div>
+                          <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1 custom-scrollbar">
+                            {teamTransactions.map(tx => (
+                              <div key={tx.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-[10px] font-black text-slate-400 border border-slate-100">
+                                    {tx.contributorName.charAt(0)}
+                                  </div>
+                                  <div>
+                                    <span className="text-[10px] font-black text-slate-900 uppercase block">{tx.contributorName}</span>
+                                    <span className="text-[8px] font-bold text-slate-400 uppercase">{new Date(tx.createdAt).toLocaleDateString()}</span>
+                                  </div>
+                                </div>
+                                <span className="text-xs font-black text-emerald-600">+R{tx.amount.toFixed(0)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                    </div>
                 </div>
 
@@ -224,10 +291,7 @@ export const PlayerDashboardUI: React.FC<PlayerDashboardUIProps> = ({
                   className="w-full bg-slate-900 p-8 rounded-[48px] text-white shadow-2xl flex items-center justify-between group hover:bg-blue-600 transition-all"
                 >
                    <div className="flex items-center gap-6">
-                      <div className="relative">
-                         <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center"><MessageSquare size={24} className="text-blue-400" /></div>
-                         <div className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full border-4 border-slate-900 flex items-center justify-center text-[10px] font-black">!</div>
-                      </div>
+                      <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center"><MessageSquare size={24} className="text-blue-400" /></div>
                       <div className="text-left">
                          <p className="text-sm font-black uppercase tracking-tight">Team Comms</p>
                          <p className="text-[10px] text-slate-400 group-hover:text-blue-100 font-bold uppercase tracking-widest">Connect with squad</p>
@@ -344,6 +408,9 @@ export const PlayerDashboardUI: React.FC<PlayerDashboardUIProps> = ({
            </div>
         </div>
       )}
+
+      {/* User Profile Modal */}
+      <UserProfileModal userId={viewingUserId} onClose={() => setViewingUserId(null)} />
     </div>
   );
 };

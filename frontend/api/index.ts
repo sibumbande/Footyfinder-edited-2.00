@@ -2,7 +2,8 @@
 
 export { api, ApiError } from './client';
 export { register, login, logout, getToken, isLoggedIn } from './auth';
-export { createTeam, getMyTeam, getTeamById, joinTeam, leaveTeam, updateTeam, contributeToTeam, saveTeamLayout, getAllTeams, toggleTeamRecruiting, inviteToTeam, requestToJoinTeam, getTeamJoinRequests, respondToJoinRequest, getMyTeamInvites, respondToTeamInvite, getTeamTransactions } from './teams';
+export { getConversations, getDMs, sendDM, acceptMessageRequest, declineMessageRequest } from './messages';
+export { createTeam, getMyTeam, getMyTeams, getTeamById, joinTeam, leaveTeam, deleteTeam, updateTeam, contributeToTeam, saveTeamLayout, getAllTeams, toggleTeamRecruiting, inviteToTeam, requestToJoinTeam, getTeamJoinRequests, respondToJoinRequest, getMyTeamInvites, respondToTeamInvite, getTeamTransactions } from './teams';
 export { getLobbies, getLobbyById, createLobby, joinLobby, payLobby, cancelLobby, leaveLobby, getLobbyMessages, sendLobbyMessage, getLobbyFormation, pickLobbyPosition, acceptLobbyChallenge } from './lobbies';
 export { loadFunds, getTransactions } from './payments';
 
@@ -65,10 +66,15 @@ export function getMe() {
       bio: string | null;
       city: string | null;
       createdAt: string;
+      isVerified?: boolean;
     };
     wallet: { balance: number; escrow: number };
     team: { id: string; name: string; role: string } | null;
   }>('/users/me');
+}
+
+export function verifyId(idPhotoBase64: string) {
+  return api.post<{ isVerified: boolean }>('/users/me/verify-id', { idPhotoBase64 });
 }
 
 export function updateMe(data: {

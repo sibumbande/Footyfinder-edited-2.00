@@ -1,15 +1,19 @@
 
 import React from 'react';
-import { Home, User, Target, LogOut, LayoutDashboard, Dumbbell, Users } from 'lucide-react';
+import { Home, User, Target, LogOut, LayoutDashboard, Dumbbell, Users, Bell } from 'lucide-react';
 import { Logo } from './Logo';
+
+const DEFAULT_AVATAR = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='100' r='45' fill='%23CBD5E1'/%3E%3Ccircle cx='50' cy='35' r='22' fill='%23CBD5E1'/%3E%3C/svg%3E";
 
 interface NavigationProps {
   activeTab: string;
   onNavigate: (page: string) => void;
   onLogout: () => void;
+  userAvatar?: string;
+  notificationCount?: number;
 }
 
-export const Navigation: React.FC<NavigationProps> = ({ activeTab, onNavigate, onLogout }) => {
+export const Navigation: React.FC<NavigationProps> = ({ activeTab, onNavigate, onLogout, userAvatar, notificationCount = 0 }) => {
   return (
     <>
       {/* Desktop Top Navbar */}
@@ -52,12 +56,24 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, onNavigate, o
         </div>
 
         <div className="flex items-center gap-4">
-           <button 
+           <button
+            onClick={() => onNavigate('notifications')}
+            className={`relative ${activeTab === 'notifications' ? 'text-blue-600' : 'text-gray-500'} hover:text-blue-600 transition-colors`}
+            title="Notifications"
+           >
+             <Bell size={22} />
+             {notificationCount > 0 && (
+               <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] font-black rounded-full min-w-[16px] h-4 flex items-center justify-center px-0.5">
+                 {notificationCount > 99 ? '99+' : notificationCount}
+               </span>
+             )}
+           </button>
+           <button
             onClick={() => onNavigate('profile')}
             className={`flex items-center gap-2 text-sm font-black uppercase tracking-widest hover:text-blue-600 ${activeTab === 'profile' ? 'text-blue-600' : 'text-gray-700'}`}
            >
              <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden border-2 border-transparent group-hover:border-blue-500">
-               <img src="https://picsum.photos/seed/siya/200" alt="Profile" className="w-full h-full object-cover" />
+               <img src={userAvatar || DEFAULT_AVATAR} alt="Profile" className="w-full h-full object-cover" />
              </div>
              Profile
            </button>
@@ -101,7 +117,19 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, onNavigate, o
           <span className="text-[9px] font-black uppercase tracking-tighter">Teams</span>
         </button>
 
-        <button 
+        <button
+          onClick={() => onNavigate('notifications')}
+          className={`relative flex flex-col items-center gap-1 ${activeTab === 'notifications' ? 'text-blue-600' : 'text-gray-400'}`}
+        >
+          <Bell size={22} strokeWidth={activeTab === 'notifications' ? 2.5 : 2} />
+          {notificationCount > 0 && (
+            <span className="absolute top-0 right-0 bg-red-500 text-white text-[8px] font-black rounded-full min-w-[14px] h-3.5 flex items-center justify-center px-0.5">
+              {notificationCount > 9 ? '9+' : notificationCount}
+            </span>
+          )}
+          <span className="text-[9px] font-black uppercase tracking-tighter">Alerts</span>
+        </button>
+        <button
           onClick={() => onNavigate('profile')}
           className={`flex flex-col items-center gap-1 ${activeTab === 'profile' ? 'text-blue-600' : 'text-gray-400'}`}
         >

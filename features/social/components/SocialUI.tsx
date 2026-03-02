@@ -265,13 +265,16 @@ export const SocialUI: React.FC<SocialUIProps> = ({
                   <div key={req.requestId} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
                     <div className="flex items-center gap-4">
                       <img
-                        src={req.user.avatarUrl || `https://picsum.photos/seed/${req.user.id}/200`}
+                        src={req.user.avatarUrl || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='100' r='45' fill='%23CBD5E1'/%3E%3Ccircle cx='50' cy='35' r='22' fill='%23CBD5E1'/%3E%3C/svg%3E"}
                         alt=""
                         className="w-12 h-12 rounded-xl object-cover"
                       />
                       <div>
                         <p className="font-black text-sm uppercase text-slate-900">{req.user.fullName}</p>
                         <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{req.user.position || 'Player'}</p>
+                        {req.teamName && (
+                          <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest mt-0.5">→ {req.teamName}</p>
+                        )}
                       </div>
                     </div>
                     <div className="flex gap-2">
@@ -297,8 +300,8 @@ export const SocialUI: React.FC<SocialUIProps> = ({
           {/* Captain: Toggle Recruiting for Own Team */}
           {isCaptain && userTeam && (
             <div className="bg-white rounded-[48px] p-10 shadow-sm border border-slate-100">
-              <h2 className="text-lg font-black uppercase tracking-tighter text-slate-900 mb-2">Your Team — {userTeam.name}</h2>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Control whether your team is visible to players looking for a squad</p>
+              <h2 className="text-lg font-black uppercase tracking-tighter text-slate-900 mb-2">Recruiting — {userTeam.name}</h2>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Control whether your active team is visible to players looking for a squad</p>
               {(() => {
                 const myTeamData = allTeams.find(t => t.id === userTeam.id);
                 const isRecruiting = myTeamData?.isRecruiting ?? false;
@@ -335,10 +338,9 @@ export const SocialUI: React.FC<SocialUIProps> = ({
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {teams.map(team => {
-                    const isOwnTeam = userTeam?.id === team.id;
-                    const alreadyMember = isOwnTeam;
+                    const isMember = team.isMember;
                     return (
-                      <div key={team.id} className={`bg-white rounded-[40px] p-8 border shadow-sm hover:shadow-xl transition-all relative overflow-hidden ${isOwnTeam ? 'border-emerald-200' : 'border-slate-100'}`}>
+                      <div key={team.id} className={`bg-white rounded-[40px] p-8 border shadow-sm hover:shadow-xl transition-all relative overflow-hidden ${isMember ? 'border-emerald-200' : 'border-slate-100'}`}>
                         {/* Color stripe */}
                         <div
                           className="absolute top-0 left-0 w-full h-2 rounded-t-[40px]"
@@ -350,11 +352,18 @@ export const SocialUI: React.FC<SocialUIProps> = ({
                               <h3 className="text-lg font-black uppercase text-slate-900 tracking-tight leading-none truncate">{team.name}</h3>
                               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">Captain: {team.captainName}</p>
                             </div>
-                            {team.isRecruiting && (
-                              <span className="shrink-0 bg-emerald-50 text-emerald-700 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl border border-emerald-200">
-                                Recruiting
-                              </span>
-                            )}
+                            <div className="flex flex-col items-end gap-1.5 shrink-0">
+                              {isMember && (
+                                <span className="bg-emerald-50 text-emerald-700 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl border border-emerald-200">
+                                  Your Team
+                                </span>
+                              )}
+                              {team.isRecruiting && !isMember && (
+                                <span className="bg-blue-50 text-blue-700 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl border border-blue-200">
+                                  Recruiting
+                                </span>
+                              )}
+                            </div>
                           </div>
 
                           <div className="flex items-center gap-4 text-[9px] font-black text-slate-400 uppercase tracking-widest">
@@ -362,19 +371,18 @@ export const SocialUI: React.FC<SocialUIProps> = ({
                           </div>
 
                           {/* Action */}
-                          {isOwnTeam ? (
-                            <div className="py-3 bg-slate-50 text-slate-400 rounded-2xl text-[10px] font-black uppercase tracking-widest text-center border border-slate-100">
-                              Your Team
+                          {isMember ? (
+                            <div className="py-3 bg-emerald-50 text-emerald-600 rounded-2xl text-[10px] font-black uppercase tracking-widest text-center border border-emerald-100 flex items-center justify-center gap-1.5">
+                              <CheckCircle2 size={13} /> Member
                             </div>
-                          ) : alreadyMember ? null : team.hasRequested ? (
+                          ) : team.hasRequested ? (
                             <div className="py-3 bg-amber-50 text-amber-600 rounded-2xl text-[10px] font-black uppercase tracking-widest text-center flex items-center justify-center gap-1.5 border border-amber-100">
                               <Clock size={13} /> Request Pending
                             </div>
                           ) : (
                             <button
                               onClick={() => onRequestToJoin(team.id)}
-                              disabled={pendingJoinTeamIds.has(team.id) || !!userTeam}
-                              title={userTeam && !isOwnTeam ? 'Leave your current team first' : undefined}
+                              disabled={pendingJoinTeamIds.has(team.id)}
                               className="w-full py-3 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-600 transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 shadow-sm"
                             >
                               <UserPlus size={13} />

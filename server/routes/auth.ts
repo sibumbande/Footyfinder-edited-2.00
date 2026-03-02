@@ -8,7 +8,7 @@ const router = Router();
 
 router.post('/register', async (req: Request, res: Response) => {
   try {
-    const { email, password, fullName, username, phone, city, position, fitnessLevel } = req.body;
+    const { email, password, fullName, username, phone, city, position, fitnessLevel, avatarBase64 } = req.body;
 
     // Validate required fields
     if (!email || !password || !fullName || !username) {
@@ -42,11 +42,11 @@ router.post('/register', async (req: Request, res: Response) => {
     const userId = `u-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const walletId = `w-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-    // Insert user
+    // Insert user (avatar_url stores base64 data URL from face photo if provided)
     db.prepare(
-      `INSERT INTO users (id, email, password_hash, full_name, username, phone, city, position, fitness_level)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(userId, email, passwordHash, fullName, username, phone || null, city || null, position || null, fitnessLevel || null);
+      `INSERT INTO users (id, email, password_hash, full_name, username, phone, city, position, fitness_level, avatar_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(userId, email, passwordHash, fullName, username, phone || null, city || null, position || null, fitnessLevel || null, avatarBase64 || null);
 
     // Create wallet
     db.prepare(

@@ -2,13 +2,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PlayerDashboardUI } from '../components/PlayerDashboardUI';
 import { UserProfileData, Team, TeamWallet, PlayerPosition } from '../../../types';
-import { getMyTeam } from '../../../frontend/api';
+import { getMyTeam, getTeamTransactions } from '../../../frontend/api';
 import { Loader2 } from 'lucide-react';
 
 interface PlayerDashboardProps {
   isFormationLocked: boolean;
   assignedPlayers: Record<string, string>;
   currentPoints: Array<{ id: string; label: string; x: number; y: number }>;
+  squadPool?: { id: string; name: string; role: string; avatar?: string }[];
   messages: any[];
   onSendMessage: (text: string) => void;
   userProfile: UserProfileData;
@@ -24,16 +25,20 @@ export const PlayerDashboard: React.FC<PlayerDashboardProps> = ({
   onTeamUpdated,
   ...props
 }) => {
+  const teamId = props.userTeam?.id;
   const [activeTab, setActiveTab] = useState<'match' | 'comms'>('match');
   const [newMessage, setNewMessage] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
+  const [teamTransactions, setTeamTransactions] = useState<{
+    id: string; amount: number; contributorName: string; createdAt: string;
+  }[]>([]);
 
-  // Fetch fresh team data from API on mount
+  // Fetch fresh team data from API on mount (or when active team changes)
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getMyTeam();
+      const data = await getMyTeam(teamId);
       if (onTeamUpdated) {
         const apiTeam: Team = {
           id: data.team.id,
@@ -44,9 +49,11 @@ export const PlayerDashboard: React.FC<PlayerDashboardProps> = ({
             id: m.id,
             fullName: m.fullName,
             position: (m.position || 'Midfielder') as PlayerPosition,
-            avatar: m.avatarUrl || 'https://picsum.photos/seed/' + m.id + '/200',
+            avatar: m.avatarUrl || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='100' r='45' fill='%23CBD5E1'/%3E%3Ccircle cx='50' cy='35' r='22' fill='%23CBD5E1'/%3E%3C/svg%3E",
           })),
           wallet: { balance: data.wallet.balance, contributions: [] },
+          motto: data.team.motto || undefined,
+          createdAt: data.team.createdAt || undefined,
         };
         onTeamUpdated(apiTeam);
       }
@@ -55,11 +62,14 @@ export const PlayerDashboard: React.FC<PlayerDashboardProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [onTeamUpdated]);
+  }, [onTeamUpdated, teamId]);
 
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+    getTeamTransactions(teamId)
+      .then(data => setTeamTransactions(data.transactions))
+      .catch(() => {});
+  }, [fetchData, teamId]);
 
   useEffect(() => {
     if (activeTab === 'comms') {
@@ -91,6 +101,7 @@ export const PlayerDashboard: React.FC<PlayerDashboardProps> = ({
       setNewMessage={setNewMessage}
       onSendMessage={handleSendMessage}
       chatEndRef={chatEndRef}
+      teamTransactions={teamTransactions}
     />
   );
 };
