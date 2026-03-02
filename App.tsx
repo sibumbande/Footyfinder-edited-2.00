@@ -8,12 +8,13 @@ import { Matchmaking, PostMatchReport } from './features/matchmaking';
 import { Training } from './features/training';
 import { CaptainsDashboard, PlayerDashboard } from './features/dashboard';
 import { CreateTeam, TeamProfile } from './features/team';
-import { Social } from './features/social';
+import { Social, PlayerProfilePage } from './features/social';
+import { NotificationsPage } from './features/notifications';
 import { Navigation } from './components/shared/ui/Navigation';
 import { MatchLobby, MatchRecord, UserProfileData, UserWallet, PlayerPosition, TeamWallet, Team, SoccerProfile, PracticeSession, FieldListing, AppNotification, DMConversation } from './types';
 import { seedDatabase } from './services/seed';
 import { walletService } from './services';
-import { isLoggedIn as checkIsLoggedIn, logout as apiLogout, getMe, getMyTeam, getMyTeams, contributeToTeam as apiContributeToTeam, getMyWallet, saveTeamLayout, deleteTeam as apiDeleteTeam, leaveTeam as apiLeaveTeam } from './frontend/api';
+import { isLoggedIn as checkIsLoggedIn, logout as apiLogout, getMe, getMyTeam, getMyTeams, contributeToTeam as apiContributeToTeam, getMyWallet, saveTeamLayout, deleteTeam as apiDeleteTeam, leaveTeam as apiLeaveTeam, updateTeam as apiUpdateTeam, getNotifications } from './frontend/api';
 
 // Default avatar SVG — shown when user has no photo
 export const DEFAULT_AVATAR = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='100' r='45' fill='%23CBD5E1'/%3E%3Ccircle cx='50' cy='35' r='22' fill='%23CBD5E1'/%3E%3C/svg%3E";
@@ -31,7 +32,7 @@ const App: React.FC = () => {
   // Initialize data store from seed (replaces all MOCK_* constants)
   const [seedData] = useState(() => seedDatabase());
 
-  const [currentPage, setCurrentPage] = useState<'login' | 'home' | 'create-profile' | 'profile' | 'matchmaking' | 'dashboard' | 'training' | 'post-match-report' | 'create-team' | 'team-profile' | 'social' | 'notifications'>('login');
+  const [currentPage, setCurrentPage] = useState<'login' | 'home' | 'create-profile' | 'profile' | 'matchmaking' | 'dashboard' | 'training' | 'post-match-report' | 'create-team' | 'team-profile' | 'social' | 'notifications' | 'player-profile'>('login');
   const [navigationParams, setNavigationParams] = useState<any>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [sessionLoading, setSessionLoading] = useState(true);
@@ -50,7 +51,8 @@ const App: React.FC = () => {
     stats: {
       goals: 0,
       assists: 0,
-      matchesPlayed: 0
+      matchesPlayed: 0,
+      cleanSheets: 0,
     },
     friends: []
   } as any);
@@ -160,6 +162,8 @@ const App: React.FC = () => {
           phone: user.phone || '',
           username: user.username || '',
           isVerified: user.isVerified || false,
+          dateOfBirth: (user as any).dateOfBirth || '',
+          yearsPlaying: (user as any).yearsPlaying ?? 0,
           wallet: { balance: data.wallet.balance, escrow: data.wallet.escrow, transactions: [] },
         }));
         setIsLoggedIn(true);
@@ -202,6 +206,9 @@ const App: React.FC = () => {
 
   const [teamMessages, setTeamMessages] = useState<any[]>([]);
   const [tabMenuOpenId, setTabMenuOpenId] = useState<string | null>(null);
+  const [renameTeam, setRenameTeam] = useState<{ id: string; currentName: string } | null>(null);
+  const [renameInput, setRenameInput] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [conversations, setConversations] = useState<DMConversation[]>([]);
 
@@ -222,13 +229,26 @@ const App: React.FC = () => {
     }
   }, [currentPage, isLoggedIn, userProfile.id]);
 
-  const applyAuthUser = (user: { id: string; email?: string; username?: string; fullName: string; position: string | null; fitnessLevel: string | null; city?: string | null }) => {
+  // Fetch notifications periodically when logged in
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const fetchN = () => getNotifications().then(res => setNotifications(res.notifications)).catch(() => {});
+    fetchN();
+    const interval = setInterval(fetchN, 60000); // poll every 60s
+    return () => clearInterval(interval);
+  }, [isLoggedIn]);
+
+  const unreadCount = notifications.filter(n => !n.isRead).length;
+
+  const applyAuthUser = (user: { id: string; email?: string; username?: string; fullName: string; position: string | null; fitnessLevel: string | null; city?: string | null; dateOfBirth?: string | null; yearsPlaying?: number }) => {
     setUserProfile(prev => ({
       ...prev,
       id: user.id,
       fullName: user.fullName,
       position: (user.position || '') as any,
       fitnessLevel: (user.fitnessLevel || '') as any,
+      dateOfBirth: user.dateOfBirth || prev.dateOfBirth || '',
+      yearsPlaying: user.yearsPlaying ?? prev.yearsPlaying ?? 0,
     }));
     setIsLoggedIn(true);
   };
@@ -488,6 +508,23 @@ const App: React.FC = () => {
     }
   };
 
+  const handleRenameTeamSubmit = async () => {
+    if (!renameTeam || !renameInput.trim()) return;
+    setRenameSaving(true);
+    try {
+      await apiUpdateTeam(renameTeam.id, { name: renameInput.trim() });
+      setUserTeams(prev => prev.map(t => t.id === renameTeam.id ? { ...t, name: renameInput.trim() } : t));
+      if (userTeam?.id === renameTeam.id) {
+        setUserTeam(prev => prev ? { ...prev, name: renameInput.trim() } : prev);
+      }
+      setRenameTeam(null);
+    } catch (err: any) {
+      alert(err.message || 'Failed to rename team');
+    } finally {
+      setRenameSaving(false);
+    }
+  };
+
   const renderPage = () => {
     switch (currentPage) {
       case 'login':
@@ -556,6 +593,20 @@ const App: React.FC = () => {
             userTeam={userTeam ? { id: userTeam.id, name: userTeam.name } : null}
             userId={userProfile.id}
             onTeamRefresh={() => fetchAndSetTeam(userProfile.id)}
+            onViewProfile={(uid) => navigate('player-profile', { userId: uid })}
+          />
+        );
+      case 'player-profile':
+        return (
+          <PlayerProfilePage
+            userId={navigationParams?.userId || ''}
+            onBack={() => navigate('social')}
+          />
+        );
+      case 'notifications':
+        return (
+          <NotificationsPage
+            onNavigate={(page) => navigate(page as any)}
           />
         );
       case 'dashboard': {
@@ -585,67 +636,88 @@ const App: React.FC = () => {
         }
 
         // Build the horizontal team tab strip
-        const teamTabStrip = (
-          <div className="sticky top-0 md:top-[64px] z-40 bg-white border-b border-slateate-200 shadow-sm" onClick={() => setTabMenuOpenId(null)}>
-            <div className="flex items-center gap-2 px-4 py-3 overflow-x-auto no-scrollbar">
-              {userTeams.map(t => {
-                const isActive = activeTeamId === t.id;
-                const isCaptain = t.role === 'CAPTAIN';
-                const menuOpen = tabMenuOpenId === t.id;
-                return (
-                  <div key={t.id} className="relative shrink-0">
-                    <div className={`flex items-center gap-2.5 px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider whitespace-nowrap transition-all ${
-                      isActive
-                        ? 'bg-slate-900 text-white shadow-lg scale-105'
-                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                    }`}>
-                      <button onClick={() => switchToTeam(t.id)} className="flex items-center gap-2.5">
-                        <span
-                          className="w-2.5 h-2.5 rounded-full shrink-0 ring-2 ring-white/30"
-                          style={{ backgroundColor: t.primaryColor || '#2563eb' }}
-                        />
-                        {t.name}
-                        <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded-lg ${
-                          isCaptain
-                            ? (isActive ? 'bg-amber-400 text-amber-900' : 'bg-amber-100 text-amber-700')
-                            : (isActive ? 'bg-blue-400/80 text-white' : 'bg-blue-100 text-blue-600')
-                        }`}>
-                          {isCaptain ? 'CAPT' : 'PLAYER'}
-                        </span>
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setTabMenuOpenId(menuOpen ? null : t.id); }}
-                        className={`ml-0.5 opacity-60 hover:opacity-100 text-lg leading-none ${isActive ? 'text-white' : 'text-slate-400'}`}
-                        title="Team options"
-                      >⋯</button>
-                    </div>
-                    {menuOpen && (
-                      <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden z-50 min-w-[140px]" onClick={e => e.stopPropagation()}>
-                        {isCaptain ? (
-                          <button
-                            onClick={() => { setTabMenuOpenId(null); handleDeleteTeam(t.id); }}
-                            className="w-full px-4 py-3 text-left text-xs font-black uppercase tracking-wider text-red-600 hover:bg-red-50 transition-colors"
-                          >Delete Team</button>
-                        ) : (
-                          <button
-                            onClick={() => { setTabMenuOpenId(null); handleLeaveTeam(t.id); }}
-                            className="w-full px-4 py-3 text-left text-xs font-black uppercase tracking-wider text-red-600 hover:bg-red-50 transition-colors"
-                          >Leave Team</button>
-                        )}
+        const teamTabStrip = (() => {
+          const activeMenuTeam = tabMenuOpenId ? userTeams.find(x => x.id === tabMenuOpenId) : null;
+          return (
+            <div className="sticky top-0 md:top-[64px] z-40 bg-white border-b border-slate-200 shadow-sm relative" onClick={() => setTabMenuOpenId(null)}>
+              <div className="flex items-center gap-2 px-4 py-3 overflow-x-auto no-scrollbar">
+                {userTeams.map(t => {
+                  const isActive = activeTeamId === t.id;
+                  const isCaptain = t.role === 'CAPTAIN';
+                  const menuOpen = tabMenuOpenId === t.id;
+                  return (
+                    <div key={t.id} className="relative shrink-0">
+                      <div className={`flex items-center gap-2.5 px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider whitespace-nowrap transition-all ${
+                        isActive
+                          ? 'bg-slate-900 text-white shadow-lg scale-105'
+                          : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                      }`}>
+                        <button onClick={() => switchToTeam(t.id)} className="flex items-center gap-2.5">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0 ring-2 ring-white/30"
+                            style={{ backgroundColor: t.primaryColor || '#2563eb' }}
+                          />
+                          {t.name}
+                          <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded-lg ${
+                            isCaptain
+                              ? (isActive ? 'bg-amber-400 text-amber-900' : 'bg-amber-100 text-amber-700')
+                              : (isActive ? 'bg-blue-400/80 text-white' : 'bg-blue-100 text-blue-600')
+                          }`}>
+                            {isCaptain ? 'CAPT' : 'PLAYER'}
+                          </span>
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setTabMenuOpenId(menuOpen ? null : t.id); }}
+                          className={`ml-0.5 opacity-60 hover:opacity-100 text-lg leading-none ${isActive ? 'text-white' : 'text-slate-400'}`}
+                          title="Team options"
+                        >⋯</button>
                       </div>
+                    </div>
+                  );
+                })}
+                <button
+                  onClick={() => navigate('create-team')}
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider whitespace-nowrap shrink-0 bg-slate-50 border border-dashed border-slate-300 text-slate-400 hover:border-blue-400 hover:text-blue-500 transition-all"
+                >
+                  <span className="text-base leading-none">+</span> New Team
+                </button>
+              </div>
+              {/* Dropdown rendered OUTSIDE the overflow container so it isn't clipped */}
+              {activeMenuTeam && (() => {
+                const t = activeMenuTeam;
+                const isCaptain = t.role === 'CAPTAIN';
+                return (
+                  <div
+                    className="absolute top-full left-4 mt-1 bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden z-50 min-w-[180px]"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <div className="px-4 py-2 border-b border-slate-100">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t.name}</p>
+                    </div>
+                    {isCaptain ? (
+                      <>
+                        <button
+                          onClick={() => { setTabMenuOpenId(null); setRenameInput(t.name); setRenameTeam({ id: t.id, currentName: t.name }); }}
+                          className="w-full px-4 py-3 text-left text-xs font-black uppercase tracking-wider text-slate-700 hover:bg-slate-50 transition-colors"
+                        >Rename Team</button>
+                        <div className="h-px bg-slate-100" />
+                        <button
+                          onClick={() => { setTabMenuOpenId(null); if (window.confirm(`Delete "${t.name}"? This cannot be undone.`)) handleDeleteTeam(t.id); }}
+                          className="w-full px-4 py-3 text-left text-xs font-black uppercase tracking-wider text-red-600 hover:bg-red-50 transition-colors"
+                        >Delete Team</button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => { setTabMenuOpenId(null); if (window.confirm(`Leave "${t.name}"?`)) handleLeaveTeam(t.id); }}
+                        className="w-full px-4 py-3 text-left text-xs font-black uppercase tracking-wider text-red-600 hover:bg-red-50 transition-colors"
+                      >Leave Team</button>
                     )}
                   </div>
                 );
-              })}
-              <button
-                onClick={() => navigate('create-team')}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider whitespace-nowrap shrink-0 bg-slate-50 border border-dashed border-slate-300 text-slate-400 hover:border-blue-400 hover:text-blue-500 transition-all"
-              >
-                <span className="text-base leading-none">+</span> New Team
-              </button>
+              })()}
             </div>
-          </div>
-        );
+          );
+        })();
 
         // Loading state while switching teams
         if (!userTeam) {
@@ -745,6 +817,37 @@ const App: React.FC = () => {
       )}
 
       <main>{renderPage()}</main>
+
+      {/* ── Rename Team Modal ── */}
+      {renameTeam && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setRenameTeam(null)}>
+          <div className="bg-white rounded-[40px] p-10 shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 mb-2">Rename Team</h2>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-8">Current: {renameTeam.currentName}</p>
+            <input
+              type="text"
+              value={renameInput}
+              onChange={e => setRenameInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleRenameTeamSubmit(); if (e.key === 'Escape') setRenameTeam(null); }}
+              autoFocus
+              maxLength={40}
+              className="w-full bg-slate-50 rounded-2xl px-5 py-4 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500 border border-slate-100 mb-6"
+              placeholder="New team name..."
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => setRenameTeam(null)}
+                className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-all"
+              >Cancel</button>
+              <button
+                onClick={handleRenameTeamSubmit}
+                disabled={!renameInput.trim() || renameSaving}
+                className="flex-1 py-3 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-600 transition-all disabled:opacity-50"
+              >{renameSaving ? 'Saving...' : 'Save'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

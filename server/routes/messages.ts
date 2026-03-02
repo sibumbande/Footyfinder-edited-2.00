@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { getDb } from '../db/database.js';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
+import { createNotification } from './notifications.js';
 
 const router = Router();
 router.use(authenticate);
@@ -165,10 +166,25 @@ router.post('/dm/:userId', (req, res: Response) => {
 
     db.save();
 
+    if (isRequest === 1) {
+      const senderInfo = db.prepare('SELECT full_name FROM users WHERE id = ?').get(userId) as { full_name: string } | undefined;
+      createNotification(db, {
+        userId: targetId,
+        type: 'DM_REQUEST',
+        title: 'New Message Request',
+        body: `${senderInfo?.full_name ?? 'Someone'} sent you a message request`,
+        relatedEntityId: userId,
+      });
+    }
+
+    const senderRow = db.prepare('SELECT full_name, avatar_url FROM users WHERE id = ?').get(userId) as { full_name: string; avatar_url: string | null } | undefined;
+
     res.status(201).json({
       message: {
         id: msgId,
         senderId: userId,
+        senderName: senderRow?.full_name ?? '',
+        senderAvatar: senderRow?.avatar_url ?? null,
         recipientId: targetId,
         content: content.trim(),
         isRequest: isRequest === 1,

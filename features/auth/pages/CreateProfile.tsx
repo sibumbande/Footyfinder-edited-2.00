@@ -98,6 +98,8 @@ export const CreateProfile: React.FC<CreateProfileProps> = ({ onProfileCreated, 
         position: formData.position || undefined,
         fitnessLevel: formData.fitnessLevel || undefined,
         avatarBase64,
+        dateOfBirth: formData.dateOfBirth || undefined,
+        yearsPlaying: formData.yearsPlaying,
       });
       onProfileCreated(user);
     } catch (err) {

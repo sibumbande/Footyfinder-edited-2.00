@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { LobbyMessage, MatchLobby, MatchIntensity, TeamWallet, UserProfileData, FieldListing } from '../../../types';
 import { MatchmakingUI } from '../components/MatchmakingUI';
-import { getLobbies, createLobby as apiCreateLobby, joinLobby as apiJoinLobby, payLobby as apiPayLobby, getMyWallet, getFields, getLobbyMessages, sendLobbyMessage, getLobbyFormation, pickLobbyPosition, acceptLobbyChallenge, completeMatch, ApiError } from '../../../frontend/api';
+import { getLobbies, getLobbyById, createLobby as apiCreateLobby, joinLobby as apiJoinLobby, payLobby as apiPayLobby, getMyWallet, getFields, getLobbyMessages, sendLobbyMessage, getLobbyFormation, pickLobbyPosition, acceptLobbyChallenge, completeMatch, ApiError } from '../../../frontend/api';
 
 type MatchMode = 'QUICK_PLAY' | 'TEAM_VS_TEAM';
 
@@ -114,12 +114,14 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
   const [challengerTeamName, setChallengerTeamName] = useState<string | undefined>();
   const chatPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const formationPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lobbyStatusPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Clear polling on unmount
   useEffect(() => {
     return () => {
       if (chatPollRef.current) clearInterval(chatPollRef.current);
       if (formationPollRef.current) clearInterval(formationPollRef.current);
+      if (lobbyStatusPollRef.current) clearInterval(lobbyStatusPollRef.current);
     };
   }, []);
 
@@ -204,6 +206,7 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
         teamId: l.teamId,
         teamName: l.teamName,
         createdBy: l.createdBy,
+        competingLobbiesCount: l.competingLobbiesCount,
       }));
       onUpdateLobbies(mapped);
     } catch {
@@ -215,6 +218,33 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
 
   useEffect(() => {
     fetchLobbies();
+  }, [fetchLobbies]);
+
+  // Poll lobby status every 5 seconds to detect if it was externally cancelled
+  // (e.g. a competing lobby filled up first and this one was auto-cancelled)
+  const startLobbyStatusPolling = useCallback((lobbyId: string) => {
+    if (lobbyStatusPollRef.current) clearInterval(lobbyStatusPollRef.current);
+    lobbyStatusPollRef.current = setInterval(async () => {
+      try {
+        const data = await getLobbyById(lobbyId);
+        if (data.lobby.status === 'CANCELLED') {
+          // Stop all polling
+          if (chatPollRef.current) { clearInterval(chatPollRef.current); chatPollRef.current = null; }
+          if (formationPollRef.current) { clearInterval(formationPollRef.current); formationPollRef.current = null; }
+          if (lobbyStatusPollRef.current) { clearInterval(lobbyStatusPollRef.current); lobbyStatusPollRef.current = null; }
+
+          // Kick user back to lobby list with explanation
+          alert('Your match lobby was cancelled — another group filled their spots first. Your entry fee has been refunded to your wallet.');
+          setMatchJoined(false);
+          setSelectedLobby(null);
+          setMatchPhase('RECRUITING');
+          setAssignedPositions({});
+          await fetchLobbies();
+        }
+      } catch {
+        // Non-critical — keep polling
+      }
+    }, 5000);
   }, [fetchLobbies]);
 
   // Sync wallet from API after payment
@@ -290,6 +320,8 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
       // Load chat history and start polling
       await fetchChatMessages(lobby.id);
       startChatPolling(lobby.id);
+      // Poll lobby status to detect external cancellation (competing lobby won)
+      startLobbyStatusPolling(lobby.id);
     }
 
     setMatchPhase(lobby.isConfirmed ? 'CONFIRMED' : 'RECRUITING');
@@ -608,6 +640,7 @@ export const Matchmaking: React.FC<MatchmakingProps> = ({
       // Stop polling
       if (chatPollRef.current) { clearInterval(chatPollRef.current); chatPollRef.current = null; }
       if (formationPollRef.current) { clearInterval(formationPollRef.current); formationPollRef.current = null; }
+      if (lobbyStatusPollRef.current) { clearInterval(lobbyStatusPollRef.current); lobbyStatusPollRef.current = null; }
 
       // Refresh wallet and lobbies
       await refreshWallet();

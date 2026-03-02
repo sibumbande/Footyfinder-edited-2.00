@@ -161,6 +161,27 @@ async function initDatabase(): Promise<Database> {
       )`,
       "CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications (user_id, is_read)",
       "CREATE INDEX IF NOT EXISTS idx_messages_dm ON messages (sender_id, receiver_id)",
+      "ALTER TABLE users ADD COLUMN date_of_birth TEXT",
+      "ALTER TABLE users ADD COLUMN years_playing INTEGER NOT NULL DEFAULT 0",
+      // Recreate notifications table with updated CHECK constraint (adds LOBBY_CANCELLED)
+      "DROP TABLE IF EXISTS notifications",
+      `CREATE TABLE IF NOT EXISTS notifications (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        type TEXT NOT NULL CHECK (type IN (
+          'FRIEND_REQUEST', 'FRIEND_ACCEPTED',
+          'TEAM_INVITE', 'TEAM_JOIN_ACCEPTED', 'TEAM_JOIN_DECLINED',
+          'TEAM_JOIN_REQUEST', 'MATCH_TODAY',
+          'TEAM_MESSAGE', 'TEAM_BIO_UPDATE', 'DM_REQUEST', 'LOBBY_CANCELLED'
+        )),
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        is_read INTEGER NOT NULL DEFAULT 0,
+        related_entity_id TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications (user_id, is_read)",
     ];
     for (const m of migrations) {
       try { db.exec(m); } catch { /* Column already exists — ignore */ }

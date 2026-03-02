@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { getDb } from '../db/database.js';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
+import { createNotification } from './notifications.js';
 
 const router = Router();
 
@@ -642,6 +643,16 @@ router.post('/:id/invite', (req, res: Response) => {
     ).run(reqId, id, friendId);
     db.save();
 
+    // Notify the invited player
+    const captainInfo = db.prepare('SELECT full_name, name FROM users u JOIN teams t ON t.captain_id = u.id WHERE t.id = ?').get(id) as { full_name: string; name: string } | undefined;
+    createNotification(db, {
+      userId: friendId,
+      type: 'TEAM_INVITE',
+      title: 'Team Invite',
+      body: `${captainInfo?.full_name ?? 'A captain'} invited you to join their team`,
+      relatedEntityId: reqId,
+    });
+
     res.json({ message: `Invite sent to ${target.full_name}` });
   } catch (err: any) {
     console.error('[Teams] POST /:id/invite error:', err.message);
@@ -676,6 +687,18 @@ router.post('/:id/request-join', (req, res: Response) => {
     const reqId = `tjr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     db.prepare(`INSERT INTO team_join_requests (id, team_id, user_id, type) VALUES (?, ?, ?, 'JOIN_REQUEST')`).run(reqId, id, userId);
     db.save();
+
+    // Notify captain of the team
+    const teamCaptain = db.prepare('SELECT t.captain_id, u.full_name AS requester_name FROM teams t JOIN users u ON u.id = ? WHERE t.id = ?').get(userId, id) as { captain_id: string; requester_name: string } | undefined;
+    if (teamCaptain) {
+      createNotification(db, {
+        userId: teamCaptain.captain_id,
+        type: 'TEAM_JOIN_REQUEST',
+        title: 'New Join Request',
+        body: `${teamCaptain.requester_name} wants to join ${team.name}`,
+        relatedEntityId: reqId,
+      });
+    }
 
     res.status(201).json({ message: `Join request sent to ${team.name}`, requestId: reqId });
   } catch (err: any) {
@@ -759,6 +782,19 @@ router.put('/join-requests/:requestId', (req, res: Response) => {
     }
 
     db.save();
+
+    // Notify the player who requested to join
+    const teamInfo = db.prepare('SELECT name FROM teams WHERE id = ?').get(jr.team_id) as { name: string } | undefined;
+    createNotification(db, {
+      userId: jr.user_id,
+      type: accept ? 'TEAM_JOIN_ACCEPTED' : 'TEAM_JOIN_DECLINED',
+      title: accept ? 'Join Request Accepted' : 'Join Request Declined',
+      body: accept
+        ? `You've been added to ${teamInfo?.name ?? 'the team'}!`
+        : `Your request to join ${teamInfo?.name ?? 'the team'} was declined`,
+      relatedEntityId: jr.team_id,
+    });
+
     res.json({ message: accept ? 'Player added to team' : 'Request declined' });
   } catch (err: any) {
     console.error('[Teams] PUT /join-requests/:requestId error:', err.message);
@@ -831,6 +867,21 @@ router.put('/invites/:inviteId', (req, res: Response) => {
     }
 
     db.save();
+
+    if (accept) {
+      // Notify captain their invite was accepted
+      const teamCaptainData = db.prepare('SELECT t.captain_id, t.name AS team_name, u.full_name FROM teams t JOIN users u ON u.id = ? WHERE t.id = ?').get(userId, invite.team_id) as { captain_id: string; team_name: string; full_name: string } | undefined;
+      if (teamCaptainData) {
+        createNotification(db, {
+          userId: teamCaptainData.captain_id,
+          type: 'TEAM_JOIN_ACCEPTED',
+          title: 'Player Joined Your Team',
+          body: `${teamCaptainData.full_name} accepted your invite and joined ${teamCaptainData.team_name}`,
+          relatedEntityId: invite.team_id,
+        });
+      }
+    }
+
     res.json({ message: accept ? 'You have joined the team!' : 'Invite declined' });
   } catch (err: any) {
     console.error('[Teams] PUT /invites/:inviteId error:', err.message);

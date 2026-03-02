@@ -3,6 +3,7 @@
 export { api, ApiError } from './client';
 export { register, login, logout, getToken, isLoggedIn } from './auth';
 export { getConversations, getDMs, sendDM, acceptMessageRequest, declineMessageRequest } from './messages';
+export { getNotifications, markNotificationRead, markAllRead } from './notifications';
 export { createTeam, getMyTeam, getMyTeams, getTeamById, joinTeam, leaveTeam, deleteTeam, updateTeam, contributeToTeam, saveTeamLayout, getAllTeams, toggleTeamRecruiting, inviteToTeam, requestToJoinTeam, getTeamJoinRequests, respondToJoinRequest, getMyTeamInvites, respondToTeamInvite, getTeamTransactions } from './teams';
 export { getLobbies, getLobbyById, createLobby, joinLobby, payLobby, cancelLobby, leaveLobby, getLobbyMessages, sendLobbyMessage, getLobbyFormation, pickLobbyPosition, acceptLobbyChallenge } from './lobbies';
 export { loadFunds, getTransactions } from './payments';
@@ -305,7 +306,21 @@ export function getMyStats() {
     wins: number;
     losses: number;
     draws: number;
+    cleanSheets: number;
   }>('/matches/stats/me');
+}
+
+export function getPlayerMatchStats(userId: string) {
+  return api.get<{
+    totalMatches: number;
+    totalGoals: number;
+    totalAssists: number;
+    averageRating: number | null;
+    wins: number;
+    losses: number;
+    draws: number;
+    cleanSheets: number;
+  }>(`/users/${userId}/match-stats`);
 }
 
 // ── Social ──────────────────────────────────────────────────────────────────

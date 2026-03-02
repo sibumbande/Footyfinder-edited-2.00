@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getDb } from '../db/database.js';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
+import { createNotification } from './notifications.js';
 
 const router = Router();
 
@@ -153,6 +154,93 @@ function fillTeamPositions(
   return members.length;
 }
 
+// ── Award Lobby ───────────────────────────────────────────────────────────────
+// Called when a lobby fills all paid slots. Confirms it, releases escrow for
+// winners, cancels all competing lobbies for the same timetable slot and
+// refunds their paid participants.
+
+function awardLobby(winnerLobbyId: string, timetableId: string | null, fee: number, db: any) {
+  // Confirm winner
+  db.prepare("UPDATE lobbies SET status = 'CONFIRMED' WHERE id = ?").run(winnerLobbyId);
+
+  // Release escrow for all winning participants (only for quick-play individual fees)
+  if (fee > 0) {
+    const winnerParticipants = db.prepare(
+      'SELECT user_id FROM lobby_participants WHERE lobby_id = ?'
+    ).all(winnerLobbyId) as { user_id: string }[];
+
+    for (const p of winnerParticipants) {
+      const pWallet = db.prepare('SELECT id, escrow FROM wallets WHERE user_id = ?').get(p.user_id) as { id: string; escrow: number };
+      if (!pWallet) continue;
+      db.prepare('UPDATE wallets SET escrow = escrow - ? WHERE id = ?').run(fee, pWallet.id);
+      db.prepare(
+        `INSERT INTO transactions (id, wallet_id, type, amount, description, reference)
+         VALUES (?, ?, 'ESCROW_RELEASE', ?, ?, ?)`
+      ).run(uid('tx'), pWallet.id, fee, `Match confirmed — lobby ${winnerLobbyId}`, winnerLobbyId);
+    }
+  }
+
+  if (!timetableId) return;
+
+  // Cancel all other active lobbies competing for the same slot
+  const competitors = db.prepare(
+    `SELECT l.id, l.fee_per_player,
+            f.name AS field_name, ft.date, ft.time_slot
+     FROM lobbies l
+     JOIN fields f ON f.id = l.field_id
+     LEFT JOIN field_timetable ft ON ft.id = l.timetable_id
+     WHERE l.timetable_id = ? AND l.id != ? AND l.status NOT IN ('CANCELLED','COMPLETED','CONFIRMED')`
+  ).all(timetableId, winnerLobbyId) as {
+    id: string; fee_per_player: number;
+    field_name: string; date: string; time_slot: string;
+  }[];
+
+  for (const loser of competitors) {
+    const loserFee = loser.fee_per_player;
+    const notifBody = `Your lobby at ${loser.field_name}${loser.time_slot ? ` (${loser.time_slot})` : ''} was cancelled — another group filled their spots first. Your entry fee has been refunded.`;
+
+    // Refund all paid participants
+    const paidParticipants = db.prepare(
+      'SELECT user_id FROM lobby_participants WHERE lobby_id = ? AND has_paid = 1'
+    ).all(loser.id) as { user_id: string }[];
+
+    for (const p of paidParticipants) {
+      const pWallet = db.prepare('SELECT id, escrow FROM wallets WHERE user_id = ?').get(p.user_id) as { id: string; escrow: number };
+      if (!pWallet) continue;
+      if (pWallet.escrow >= loserFee) {
+        db.prepare('UPDATE wallets SET balance = balance + ?, escrow = escrow - ? WHERE id = ?').run(loserFee, loserFee, pWallet.id);
+      } else {
+        db.prepare('UPDATE wallets SET balance = balance + ? WHERE id = ?').run(loserFee, pWallet.id);
+      }
+      db.prepare(
+        `INSERT INTO transactions (id, wallet_id, type, amount, description, reference)
+         VALUES (?, ?, 'ESCROW_REFUND', ?, ?, ?)`
+      ).run(uid('tx'), pWallet.id, loserFee, `Another lobby filled first — refund`, loser.id);
+    }
+
+    db.prepare("UPDATE lobbies SET status = 'CANCELLED' WHERE id = ?").run(loser.id);
+
+    // Notify everyone who was in this lobby (paid or not)
+    const allParticipants = db.prepare(
+      'SELECT user_id FROM lobby_participants WHERE lobby_id = ?'
+    ).all(loser.id) as { user_id: string }[];
+
+    for (const p of allParticipants) {
+      createNotification(db, {
+        userId: p.user_id,
+        type: 'LOBBY_CANCELLED',
+        title: 'Match Lobby Cancelled',
+        body: notifBody,
+        relatedEntityId: loser.id,
+      });
+    }
+  }
+
+  // Book the timetable slot for the winner
+  db.prepare("UPDATE field_timetable SET status = 'BOOKED', lobby_id = ? WHERE id = ?")
+    .run(winnerLobbyId, timetableId);
+}
+
 // ── GET / — List active lobbies (public) ────────────────────────────────────
 
 router.get('/', (req: Request, res: Response) => {
@@ -166,7 +254,12 @@ router.get('/', (req: Request, res: Response) => {
                       f.name AS field_name, f.location AS field_location, f.city AS field_city,
                       ft.date, ft.time_slot,
                       (SELECT count(*) FROM lobby_participants lp WHERE lp.lobby_id = l.id) AS participant_count,
-                      (SELECT count(*) FROM lobby_participants lp WHERE lp.lobby_id = l.id AND lp.has_paid = 1) AS paid_count
+                      (SELECT count(*) FROM lobby_participants lp WHERE lp.lobby_id = l.id AND lp.has_paid = 1) AS paid_count,
+                      (SELECT count(*) FROM lobbies l2
+                       WHERE l2.timetable_id = l.timetable_id
+                         AND l2.timetable_id IS NOT NULL
+                         AND l2.status IN ('OPEN','FILLING','FULL')
+                      ) AS competing_lobbies_count
                FROM lobbies l
                JOIN fields f ON f.id = l.field_id
                LEFT JOIN field_timetable ft ON ft.id = l.timetable_id
@@ -199,6 +292,7 @@ router.get('/', (req: Request, res: Response) => {
         createdBy: r.created_by,
         teamId: r.team_id || undefined,
         teamName: r.team_name || undefined,
+        competingLobbiesCount: r.competing_lobbies_count ?? 1,
       })),
     });
   } catch (err: any) {
@@ -314,7 +408,8 @@ router.post('/', authenticate, (req, res: Response) => {
       return;
     }
 
-    if (slot.status !== 'AVAILABLE') {
+    // Allow AVAILABLE (first lobby) or RESERVED (competing lobby for same slot)
+    if (slot.status !== 'AVAILABLE' && slot.status !== 'RESERVED') {
       res.status(400).json({ error: `Slot is not available (current status: ${slot.status})` });
       return;
     }
@@ -334,9 +429,11 @@ router.post('/', authenticate, (req, res: Response) => {
       feePerPlayer ?? 50.00
     );
 
-    // Reserve the timetable slot
-    db.prepare('UPDATE field_timetable SET status = ?, lobby_id = ? WHERE id = ?')
-      .run('RESERVED', lobbyId, resolvedTimetableId);
+    // Reserve the timetable slot only for the first lobby (competing lobbies share the RESERVED slot)
+    if (slot.status === 'AVAILABLE') {
+      db.prepare('UPDATE field_timetable SET status = ?, lobby_id = ? WHERE id = ?')
+        .run('RESERVED', lobbyId, resolvedTimetableId);
+    }
 
     if (teamId) {
       // Team match: auto-fill HOME positions from team members (they're marked as paid)
@@ -506,28 +603,9 @@ router.post('/:id/pay', authenticate, (req, res: Response) => {
     let lobbyStatus = lobby.status;
 
     if (counts.paid >= lobby.max_players && counts.total >= lobby.max_players) {
-      // All slots filled and all paid → CONFIRMED
-      db.prepare('UPDATE lobbies SET status = ? WHERE id = ?').run('CONFIRMED', id);
+      // This lobby filled first — confirm it and cancel any competing lobbies for the same slot
+      awardLobby(id, lobby.timetable_id, fee, db);
       lobbyStatus = 'CONFIRMED';
-
-      // Update timetable slot to BOOKED
-      if (lobby.timetable_id) {
-        db.prepare('UPDATE field_timetable SET status = ? WHERE id = ?').run('BOOKED', lobby.timetable_id);
-      }
-
-      // Release escrow for all participants
-      const allParticipants = db.prepare(
-        'SELECT user_id FROM lobby_participants WHERE lobby_id = ?'
-      ).all(id) as { user_id: string }[];
-
-      for (const p of allParticipants) {
-        const pWallet = db.prepare('SELECT id, escrow FROM wallets WHERE user_id = ?').get(p.user_id) as { id: string; escrow: number };
-        db.prepare('UPDATE wallets SET escrow = escrow - ? WHERE id = ?').run(fee, pWallet.id);
-        db.prepare(
-          `INSERT INTO transactions (id, wallet_id, type, amount, description, reference)
-           VALUES (?, ?, 'ESCROW_RELEASE', ?, ?, ?)`
-        ).run(uid('tx'), pWallet.id, fee, `Match confirmed — lobby ${id}`, id);
-      }
     }
 
     db.save();
@@ -597,10 +675,18 @@ router.post('/:id/cancel', authenticate, (req, res: Response) => {
     // Set lobby to CANCELLED
     db.prepare('UPDATE lobbies SET status = ? WHERE id = ?').run('CANCELLED', id);
 
-    // Free the timetable slot
+    // Free the timetable slot only if no other active competing lobbies remain for this slot
     if (lobby.timetable_id) {
-      db.prepare('UPDATE field_timetable SET status = ?, lobby_id = NULL WHERE id = ?')
-        .run('AVAILABLE', lobby.timetable_id);
+      const remainingActive = db.prepare(
+        `SELECT count(*) AS c FROM lobbies
+         WHERE timetable_id = ? AND id != ? AND status NOT IN ('CANCELLED','COMPLETED','CONFIRMED')`
+      ).get(lobby.timetable_id, id) as { c: number };
+
+      if (remainingActive.c === 0) {
+        db.prepare('UPDATE field_timetable SET status = ?, lobby_id = NULL WHERE id = ?')
+          .run('AVAILABLE', lobby.timetable_id);
+      }
+      // If other lobbies still competing, keep timetable as RESERVED
     }
 
     db.save();
@@ -918,11 +1004,10 @@ router.post('/:id/accept-challenge', authenticate, (req, res: Response) => {
 
     let newStatus = lobby.status as string;
     if (homeCount.c > 0) {
-      db.prepare("UPDATE lobbies SET status = 'CONFIRMED' WHERE id = ?").run(id);
+      // Both teams filled — award the lobby: confirms it, cancels competing lobbies for the
+      // same timetable slot, refunds their participants, and sends LOBBY_CANCELLED notifications.
+      awardLobby(id, lobby.timetable_id, 0, db);
       newStatus = 'CONFIRMED';
-      if (lobby.timetable_id) {
-        db.prepare("UPDATE field_timetable SET status = 'BOOKED' WHERE id = ?").run(lobby.timetable_id);
-      }
     }
 
     // Get challenger team name

@@ -8,7 +8,7 @@ const router = Router();
 
 router.post('/register', async (req: Request, res: Response) => {
   try {
-    const { email, password, fullName, username, phone, city, position, fitnessLevel, avatarBase64 } = req.body;
+    const { email, password, fullName, username, phone, city, position, fitnessLevel, avatarBase64, dateOfBirth, yearsPlaying } = req.body;
 
     // Validate required fields
     if (!email || !password || !fullName || !username) {
@@ -44,9 +44,9 @@ router.post('/register', async (req: Request, res: Response) => {
 
     // Insert user (avatar_url stores base64 data URL from face photo if provided)
     db.prepare(
-      `INSERT INTO users (id, email, password_hash, full_name, username, phone, city, position, fitness_level, avatar_url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(userId, email, passwordHash, fullName, username, phone || null, city || null, position || null, fitnessLevel || null, avatarBase64 || null);
+      `INSERT INTO users (id, email, password_hash, full_name, username, phone, city, position, fitness_level, avatar_url, date_of_birth, years_playing)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(userId, email, passwordHash, fullName, username, phone || null, city || null, position || null, fitnessLevel || null, avatarBase64 || null, dateOfBirth || null, yearsPlaying ?? 0);
 
     // Create wallet
     db.prepare(
@@ -60,7 +60,12 @@ router.post('/register', async (req: Request, res: Response) => {
 
     res.status(201).json({
       token,
-      user: { id: userId, email, username, fullName, position: position || null, fitnessLevel: fitnessLevel || null, city: city || null },
+      user: {
+        id: userId, email, username, fullName,
+        position: position || null, fitnessLevel: fitnessLevel || null, city: city || null,
+        dateOfBirth: dateOfBirth || null,
+        yearsPlaying: yearsPlaying ?? 0,
+      },
     });
   } catch (err: any) {
     console.error('[Auth] Register error:', err.message);

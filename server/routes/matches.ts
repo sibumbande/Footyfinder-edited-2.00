@@ -26,7 +26,7 @@ router.post('/complete', (req, res: Response) => {
 
     const lobby = db.prepare(
       `SELECT l.id, l.field_id, l.fee_per_player, l.status, l.created_by,
-              ft.date
+              l.timetable_id, ft.date
        FROM lobbies l
        LEFT JOIN field_timetable ft ON ft.id = l.timetable_id
        WHERE l.id = ?`
@@ -135,6 +135,12 @@ router.post('/complete', (req, res: Response) => {
     // Update lobby status to COMPLETED
     db.prepare('UPDATE lobbies SET status = ? WHERE id = ?').run('COMPLETED', lobbyId);
 
+    // Free the timetable slot so it can be booked again
+    if (lobby.timetable_id) {
+      db.prepare("UPDATE field_timetable SET status = 'AVAILABLE', lobby_id = NULL WHERE id = ?")
+        .run(lobby.timetable_id);
+    }
+
     db.save();
 
     // Fetch the created match for response
@@ -193,13 +199,14 @@ router.get('/stats/me', (req, res: Response) => {
        WHERE mp.user_id = ? AND m.status = 'COMPLETED'`
     ).all(userId) as Record<string, any>[];
 
-    let wins = 0, losses = 0, draws = 0;
+    let wins = 0, losses = 0, draws = 0, cleanSheets = 0;
     for (const r of matchResults) {
       const myScore = r.team_side === 'HOME' ? r.score_home : r.score_away;
       const oppScore = r.team_side === 'HOME' ? r.score_away : r.score_home;
       if (myScore > oppScore) wins++;
       else if (myScore < oppScore) losses++;
       else draws++;
+      if (oppScore === 0) cleanSheets++;
     }
 
     res.json({
@@ -210,6 +217,7 @@ router.get('/stats/me', (req, res: Response) => {
       wins,
       losses,
       draws,
+      cleanSheets,
     });
   } catch (err: any) {
     console.error('[Matches] GET /stats/me error:', err.message);

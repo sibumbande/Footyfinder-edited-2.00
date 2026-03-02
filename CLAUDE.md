@@ -6,13 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 FootyFinder 2.0 is a React/TypeScript web application for football (soccer) matchmaking. Players can find matches, create teams, join lobbies, and manage their football activities. The app supports both individual players and team captains with different dashboards and capabilities.
 
+The backend is a fully operational Express + SQLite (sql.js) server running on the same dev port via Vite proxy. All features are wired end-to-end: frontend React → `frontend/api/` HTTP client → Express routes → SQLite DB.
+
 ## Development Commands
 
 ```bash
 # Install dependencies
 npm install
 
-# Run development server (http://localhost:3000)
+# Run development server (http://localhost:3000 — frontend + backend via Vite proxy)
 npm run dev
 
 # Build for production
@@ -38,34 +40,34 @@ FootyFinder-2.0/
 ├── App.tsx                 # Main app component with all state and routing
 ├── types.ts                # TypeScript type definitions and enums
 ├── constants.ts            # App-level constants (APP_LOGO_URL only)
-├── vite.config.ts          # Vite configuration
+├── vite.config.ts          # Vite configuration (also proxies /api → Express)
 ├── tsconfig.json           # TypeScript configuration
 ├── package.json            # Dependencies and scripts
 ├── .env.local              # Environment variables (not in repo)
 │
-├── services/               # Data & business logic layer
-│   ├── index.ts            # Barrel export for all services
-│   ├── database.ts         # In-memory data store (SQLite-compatible schema)
-│   ├── seed.ts             # Seed data (replaces old mock constants)
-│   ├── walletService.ts    # Wallet operations (load, escrow, debit, contribute)
-│   └── lobbyService.ts     # Lobby/booking operations
+├── services/               # Legacy in-memory data layer (superseded by server)
+│   ├── index.ts
+│   ├── database.ts         # In-memory data store (DataStore interfaces)
+│   ├── seed.ts             # seedDatabase() — still used for field/lobby seed shapes
+│   ├── walletService.ts    # Wallet operations (legacy, now backend handles this)
+│   └── lobbyService.ts     # Lobby operations (legacy)
 │
 ├── features/               # Feature-based modules (pages + feature components)
 │   ├── auth/               # Authentication (Login, CreateProfile)
 │   │   ├── index.ts
 │   │   └── pages/
 │   │       ├── Login.tsx
-│   │       └── CreateProfile.tsx
+│   │       └── CreateProfile.tsx      # Registration: face photo required, sends base64 avatar
 │   │
 │   ├── home/               # Home/landing page
 │   │   ├── index.ts
 │   │   └── pages/
 │   │       └── Home.tsx
 │   │
-│   ├── profile/            # User profile, wallet, transaction history
+│   ├── profile/            # User profile, wallet, live stats, ID verification
 │   │   ├── index.ts
 │   │   └── pages/
-│   │       └── Profile.tsx
+│   │       └── Profile.tsx            # Live stats via getMyStats(), age calc, verify ID card
 │   │
 │   ├── dashboard/          # Captain & Player dashboards
 │   │   ├── index.ts
@@ -79,10 +81,10 @@ FootyFinder-2.0/
 │   ├── matchmaking/        # Match lobbies & post-match reports
 │   │   ├── index.ts
 │   │   ├── pages/
-│   │   │   ├── Matchmaking.tsx
+│   │   │   ├── Matchmaking.tsx        # Lobby fetch, competing lobbies mapped
 │   │   │   └── PostMatchReport.tsx
 │   │   └── components/
-│   │       └── MatchmakingUI.tsx
+│   │       └── MatchmakingUI.tsx      # CONTESTED badge for competing lobbies
 │   │
 │   ├── training/           # Training sessions
 │   │   ├── index.ts
@@ -100,314 +102,313 @@ FootyFinder-2.0/
 │   │       ├── CreateTeamUI.tsx
 │   │       └── TeamProfileUI.tsx
 │   │
-│   └── social/             # Social/friends network
+│   ├── social/             # Social/friends, DMs, player profiles
+│   │   ├── index.ts
+│   │   ├── pages/
+│   │   │   ├── Social.tsx             # Friends, Discover, Messages tabs + onViewProfile
+│   │   │   └── PlayerProfilePage.tsx  # Read-only public profile (stats, bio, W/D/L)
+│   │   └── components/
+│   │       └── SocialUI.tsx           # Clickable avatars/names, DM button, conversations list
+│   │
+│   └── notifications/      # In-app notification center
 │       ├── index.ts
-│       ├── pages/
-│       │   └── Social.tsx
-│       └── components/
-│           └── SocialUI.tsx
+│       └── pages/
+│           └── NotificationsPage.tsx  # Bell-driven page, grouped Today/Yesterday/Earlier
 │
 ├── components/             # Shared & reusable components
-│   ├── shared/             # Generic reusable UI
-│   │   ├── index.ts        # Barrel export for all shared
+│   ├── shared/
+│   │   ├── index.ts
 │   │   ├── ui/
 │   │   │   ├── index.ts
-│   │   │   ├── Navigation.tsx
+│   │   │   ├── Navigation.tsx         # Bell icon with unread badge, notificationCount prop
 │   │   │   ├── Logo.tsx
-│   │   │   ├── TabPanel.tsx        # Reusable tab navigation
-│   │   │   ├── SearchInput.tsx     # Reusable search input
-│   │   │   ├── StatCard.tsx        # Reusable stat display card
-│   │   │   └── EmptyState.tsx      # Reusable empty state placeholder
+│   │   │   ├── TabPanel.tsx
+│   │   │   ├── SearchInput.tsx
+│   │   │   ├── StatCard.tsx
+│   │   │   └── EmptyState.tsx
 │   │   ├── modals/
 │   │   │   ├── index.ts
-│   │   │   ├── Modal.tsx           # Base modal wrapper
-│   │   │   ├── PaymentModal.tsx    # Payment processing modal
-│   │   │   └── FundingModal.tsx    # Team wallet funding modal
+│   │   │   ├── Modal.tsx
+│   │   │   ├── PaymentModal.tsx
+│   │   │   └── FundingModal.tsx
 │   │   └── forms/
 │   │       ├── index.ts
-│   │       └── NumberCounter.tsx   # +/- counter input
+│   │       └── NumberCounter.tsx
 │   │
-│   └── domain/             # Football-specific reusable components
+│   └── domain/
 │       ├── index.ts
-│       ├── TacticalPitch.tsx       # Interactive pitch/formation display
-│       ├── LobbyChat.tsx           # Chat for match/team lobbies
-│       └── FieldCard.tsx           # Football field listing card
+│       ├── TacticalPitch.tsx
+│       ├── LobbyChat.tsx
+│       └── FieldCard.tsx
 │
-├── server/                 # Backend (future — files are empty scaffolds)
-│   ├── index.ts            # Express server entry point
+├── server/                 # Fully operational Express + SQLite backend
+│   ├── index.ts            # Express server — registers all routers under /api
 │   ├── db/
-│   │   ├── schema.sql      # SQLite table definitions
-│   │   ├── seed.sql        # Initial data inserts
-│   │   ├── database.ts     # SQLite connection & query helpers
+│   │   ├── schema.sql      # SQLite table definitions (authoritative schema)
+│   │   ├── seed.sql        # Initial field/timetable data inserts
+│   │   ├── database.ts     # sql.js wrapper + migrations array (run on startup)
 │   │   └── footy.db        # SQLite database file (gitignored)
 │   ├── routes/
-│   │   ├── auth.ts         # Auth endpoints (register, login, logout)
-│   │   ├── users.ts        # User profile CRUD
-│   │   ├── teams.ts        # Team CRUD & membership
-│   │   ├── lobbies.ts      # Lobby creation, join, confirm
-│   │   ├── matches.ts      # Match history & post-match reports
+│   │   ├── auth.ts         # POST /register (avatarBase64, dateOfBirth, yearsPlaying), POST /login
+│   │   ├── users.ts        # GET+PUT /me, POST /me/verify-id, GET /:id, GET /:id/match-stats,
+│   │   │                   # GET /:id/training-stats, GET /:id/reviews
+│   │   ├── teams.ts        # Team CRUD, membership, DELETE /:id (captain), notification triggers
+│   │   ├── lobbies.ts      # Lobby CRUD, competing lobbies (awardLobby), formation endpoints
+│   │   ├── matches.ts      # Match history, POST /report, GET /stats/me (with cleanSheets)
 │   │   ├── fields.ts       # Field listings & timetables
 │   │   ├── payments.ts     # Wallet load, escrow, transactions
-│   │   └── social.ts       # Friends, discover profiles
+│   │   ├── social.ts       # Friends, discover profiles, notification triggers
+│   │   ├── messages.ts     # DM conversations, send/accept/decline message requests
+│   │   └── notifications.ts # GET /notifications, mark read, createNotification() helper
 │   ├── middleware/
-│   │   └── auth.ts         # JWT/session auth middleware
+│   │   └── auth.ts         # JWT auth middleware (authenticate, AuthRequest)
 │   └── utils/
 │       ├── paystack.ts     # Paystack payment gateway integration
-│       └── splits.ts       # Payment split logic (field owners, platform fee)
+│       └── splits.ts       # Payment split logic
 │
-├── shared/                 # Shared types between frontend & server
-│   └── types.ts            # Canonical type definitions (future)
+├── shared/
+│   └── types.ts            # Shared types (future)
 │
-└── frontend/               # Frontend API client layer (future)
+└── frontend/               # Frontend API client layer
     └── api/
-        ├── index.ts        # Barrel export
-        ├── client.ts       # Base HTTP client (fetch wrapper)
-        ├── auth.ts         # Auth API calls
-        ├── teams.ts        # Teams API calls
-        ├── lobbies.ts      # Lobbies API calls
-        └── payments.ts     # Payments API calls
+        ├── index.ts        # Barrel export for all API functions
+        ├── client.ts       # Base HTTP client (fetch wrapper with JWT header)
+        ├── auth.ts         # register(), login(), logout(), getToken(), isLoggedIn()
+        ├── teams.ts        # getTeams(), createTeam(), deleteTeam(), saveTeamLayout(), etc.
+        ├── lobbies.ts      # getLobbies(), createLobby(), joinLobby(), payLobby(), etc.
+        ├── payments.ts     # loadWallet(), getWallet(), etc.
+        ├── messages.ts     # getConversations(), getDMs(), sendDM(), accept/declineRequest()
+        └── notifications.ts # getNotifications(), markNotificationRead(), markAllRead()
 ```
 
 ## Architecture Overview
 
 ### Application Structure
 
-- **App.tsx**: Central orchestrator containing all application state and routing logic
-  - Manages user profile, team data, match history, lobbies, and messages
-  - Initializes data from `seedDatabase()` instead of hardcoded mock constants
-  - Implements custom navigation system (not React Router)
-  - Handles all state updates and passes data down to pages via props
+- **App.tsx**: Central orchestrator — all React state, routing logic, and callback handlers
+  - `currentPage` union type drives `renderPage()` switch
+  - `navigate(page, params?)` is the custom router (no React Router)
+  - State: `userProfile`, `userTeam`, `userTeams[]`, `userRole`, `activeLobbies`, `notifications`, `conversations`, etc.
+  - `applyAuthUser()` maps auth response → userProfile (sets id, fullName, position, fitnessLevel, dateOfBirth, yearsPlaying, avatarUrl, isVerified)
+  - Session restore on startup via `GET /api/users/me`
 
-- **services/**: Business logic and data layer
-  - `database.ts`: In-memory data store with SQLite-compatible schema interfaces (`DataStore`, `DbLobbyParticipant`, `DbMessage`, `DbTeamWalletContribution`)
-  - `seed.ts`: `seedDatabase()` initializes all data (fields, lobbies, profiles, sessions, squad pool, captain messages) — replaces the old mock constants
-  - `walletService.ts`: All wallet operations — `loadFunds`, `escrowHold`, `escrowRelease`, `escrowRefund`, `directDebit`, `contributeToTeam`, `getWallet`, `getBalance`, `getTransactions`
-  - `lobbyService.ts`: Lobby operations — `getActiveLobbies`, `getLobby`, `joinSlot`, `confirmLobby`, `cancelLobby`
+- **server/**: Fully operational Express server (NOT scaffolds)
+  - Entry: `server/index.ts` — mounts all routers, serves static build in production
+  - Database: `server/db/database.ts` — sql.js wrapper; migrations array runs on every startup (idempotent)
+  - Auth: JWT tokens stored in `localStorage` as `footyfinder_token`
 
-- **features/**: Feature-based modules, each containing related pages and components
-  - Each feature has its own `index.ts` barrel export for clean imports
-  - `pages/` subfolder: Full-page views (smart components with routing/state logic)
-  - `components/` subfolder: Feature-specific UI components (presentational)
-  - Features: auth, home, profile, dashboard, matchmaking, training, team, social
-
-- **components/shared/**: Generic reusable UI components used across features
-  - `ui/`: Navigation, Logo, TabPanel, SearchInput, StatCard, EmptyState
-  - `modals/`: Modal (base), PaymentModal, FundingModal
-  - `forms/`: NumberCounter
-
-- **components/domain/**: Football-specific reusable components
-  - TacticalPitch, LobbyChat, FieldCard
-
-- **server/**: Backend scaffold (empty files, ready to implement)
-  - Express server with SQLite database
-  - RESTful routes for all resources
-  - Paystack payment integration utilities
-  - Auth middleware for JWT/session-based authentication
-
-- **shared/**: Canonical type definitions shared between frontend and backend (future)
-
-- **frontend/api/**: HTTP client layer to replace direct service calls when backend is ready
+- **frontend/api/**: HTTP client layer
+  - `client.ts` base: attaches `Authorization: Bearer <token>` to every request
+  - Each file exports typed async functions matching the server route shape
 
 ### State Management
 
-- All state lives in App.tsx with no external state management library
-- Data is initialized via `seedDatabase()` from `services/seed.ts`
-- Wallet operations go through `walletService` which manages the in-memory data store
-- State is passed down to pages/components as props
-- State updates flow back up through callback functions
-- Key state includes:
-  - `userProfile`: Current user's profile, wallet (synced with walletService), stats, friends
-  - `userTeam`: User's team data (null if no team created)
-  - `userRole`: 'PLAYER' or 'CAPTAIN'
-  - `fields`: Available football fields (from seed data)
-  - `activeLobbies`: Available match lobbies
-  - `matchHistory`: Past match records
-  - `teamWallet`: Team's shared wallet for match fees
-  - `teamMessages`: Team chat messages
+- All state in App.tsx (no external library)
+- Props drill down, callbacks drill up
+- Key state:
+  - `userProfile`: id, fullName, position, fitnessLevel, dateOfBirth, yearsPlaying, avatarUrl, isVerified, wallet, stats, friends
+  - `userTeam` / `userTeams[]`: active team + all teams user belongs to
+  - `userRole`: `'PLAYER'` | `'CAPTAIN'`
+  - `activeLobbies`: match lobbies from API
+  - `notifications`: `AppNotification[]` — fetched after login
+  - `conversations`: `DMConversation[]`
 
-### Wallet & Escrow Flow
+### Database Schema (key tables)
 
-The wallet system uses a proper escrow pattern via `walletService`:
-1. **Load Funds**: Player adds money → `walletService.loadFunds()` → balance increases, Credit transaction logged
-2. **Join Match (Quick Play)**: Player pays entry → `walletService.escrowHold()` → balance decreases, escrow increases, EscrowHold transaction logged
-3. **Match Confirmed**: Escrow released → `walletService.escrowRelease()` → escrow decreases, EscrowRelease transaction logged (money goes to field)
-4. **Match Cancelled**: Escrow refunded → `walletService.escrowRefund()` → escrow decreases, balance increases, EscrowRefund transaction logged
-5. **Team Contribution**: Player contributes → `walletService.directDebit()` → balance decreases, team wallet increases
+All defined in `server/db/schema.sql`. Migrations for existing DBs in `server/db/database.ts` migrations array.
 
-### Navigation System
+| Table | Purpose |
+|-------|---------|
+| `users` | id, email, password_hash, full_name, username, avatar_url, position, fitness_level, bio, city, is_verified, id_document_url, date_of_birth, years_playing |
+| `wallets` | balance, escrow per user |
+| `transactions` | DEPOSIT, ESCROW_HOLD, ESCROW_RELEASE, ESCROW_REFUND, etc. |
+| `teams` | name, captain_id, colors, team_layout JSON, motto, is_recruiting |
+| `team_members` | team_id, user_id, role (CAPTAIN/PLAYER), position_in_formation |
+| `team_join_requests` | JOIN_REQUEST / CAPTAIN_INVITE flow |
+| `team_wallets` | shared team balance |
+| `fields` | name, location, city, price_per_slot |
+| `field_timetable` | field_id, date, time_slot, status (AVAILABLE/RESERVED/BOOKED/LOCKED), lobby_id |
+| `lobbies` | field_id, timetable_id, created_by, team_id, intensity, max_players, fee_per_player, status |
+| `lobby_participants` | lobby_id, user_id, has_paid, payment_reference |
+| `lobby_positions` | lobby_id, user_id, team_side (HOME/AWAY), position_on_field, position_index |
+| `matches` | lobby_id, field_id, date, score_home, score_away, status |
+| `match_players` | match_id, user_id, team_side, goals, assists, rating |
+| `messages` | sender_id, receiver_id, content, is_request (for DM gating) |
+| `notifications` | user_id, type, title, body, is_read, related_entity_id |
+| `friendships` | requester_id, addressee_id, status (PENDING/ACCEPTED/DECLINED) |
+| `practice_sessions` | training sessions with escrow pattern |
+| `practice_participants` | session_id, user_id, has_paid |
+| `chat_messages` | context_type (lobby/training), context_id, sender_id, content |
+| `player_reviews` | session reviews 1-5 stars |
 
-Custom navigation implemented via `navigate(page, params?)` function:
-- Takes a page name and optional parameters
-- Updates `currentPage` state to render different views
-- Passes parameters via `navigationParams` state
-- No URL routing - purely state-based
-
-### Data Types
-
-All TypeScript types defined in `types.ts`:
-- `UserProfileData`: Player profile with wallet, stats, friends
-- `UserWallet`: Balance, escrow amount, transaction history
-- `WalletTransaction`: Transaction with type (Credit, Debit, Refund, EscrowHold, EscrowRelease, EscrowRefund, TeamContribution), amount, description, date, isPending, relatedEntityId
-- `Team`: Team with members, colors, wallet
-- `MatchLobby`: Match lobby with field, time, participants
-- `SoccerProfile`: Basic player info for friends/teammates
-- Enums: `PlayerPosition`, `FitnessLevel`, `MatchIntensity`, `BookingStatus`
-
-### Seed Data
-
-`services/seed.ts` contains all initial data (replaces old `constants.ts` mock data):
-- `seedDatabase()` returns `{ fields, lobbies, profiles, practiceSessions, squadPool, captainMessages }`
-- Deterministic timetable generation (no `Math.random()`)
-- All data is loaded into the in-memory `DataStore` on initialization
+---
 
 ## Key Features
 
+### Authentication
+- Registration: `POST /api/auth/register` — accepts email, password, fullName, username, position, fitnessLevel, avatarBase64 (face photo, required), dateOfBirth, yearsPlaying
+- Face photo at registration is stored as `avatar_url` (base64 data URL)
+- Login: `POST /api/auth/login` — returns JWT + user object
+- Token stored in `localStorage` as `footyfinder_token`
+- Session restore: `GET /api/users/me` on app load
+
+### Identity Verification
+- Face photo (selfie) is **required** during registration — becomes the player's avatar
+- Gov ID / Passport upload on Profile page → `POST /api/users/me/verify-id` → sets `is_verified = 1`
+- Verified players show `CheckCheck` (double tick) badge in: profile header, social player cards, team member lists, DM conversations
+- Unverified players show greyed-out `ShieldCheck` icon
+
+### Player Profile & Stats
+- `GET /api/users/me` returns full profile including `isVerified`, `dateOfBirth`, `yearsPlaying`
+- `GET /api/matches/stats/me` returns: totalMatches, goals, assists, wins, losses, draws, cleanSheets, averageRating
+  - Clean sheets: matches where the opponent scored 0
+- Profile page fetches live stats via `getMyStats()` on mount (not stale props)
+- Bio sidebar shows: position, fitness level, city, age (calculated from dateOfBirth), years playing experience
+- `GET /api/users/:id/match-stats` — same stats for any player (used by PlayerProfilePage)
+- `GET /api/users/:id/training-stats` — count of confirmed/completed practice sessions
+
+### Clickable Player Profiles
+- In Social → Discover and Friends tabs, clicking any player avatar/name navigates to `'player-profile'` page
+- `PlayerProfilePage.tsx` is a read-only public profile showing: avatar, name, verified badge, city/age, 5 stat cards (Matches, Goals, Assists, Clean Sheets, Training), W/D/L row, bio
+
 ### Dual Role System
 - **Player Mode**: View team formation (locked), contribute to wallet, chat
-- **Captain Mode**: Edit formation, manage squad, organize matches, handle wallet
-- Role switcher visible on dashboard, matchmaking, and team profile pages
-
-### Match Lobbies
-- Players race to fill lobbies and pay match fees
-- Entry fee held in escrow via `walletService.escrowHold()`
-- First full squad to pay secures the time slot
-- Lobbies show joined/paid counts and confirmation status
-- On confirmation, escrow is released via `walletService.escrowRelease()`
-- Team matches require both teams to fund from team wallets
+- **Captain Mode**: Edit formation, manage squad, organize matches, delete team
+- Role switcher visible on dashboard and matchmaking pages
 
 ### Team System
-- Users must create or join a team to access dashboard
-- Teams have shared wallets funded by member contributions (deducted from personal wallet)
-- Captains can create lobbies and manage formations using TacticalPitch component
-- Team chat for coordination
+- Multiple teams supported (user can be in multiple teams)
+- `userTeams[]` state tracks all memberships; tab strip switches between them
+- **Delete Team** (captain only): `DELETE /api/teams/:id` — cascades removes all members, wallets, requests
+- **Leave Team** (player only): `POST /api/teams/:id/leave` — removes from team
+- Team tab strip in App.tsx uses IIFE pattern (rendered outside `overflow-x: auto` container) to show dropdown without CSS clipping
+- Teams have shared wallets, invite/join request flow, mottos
 
-### Formation System (Team vs Team Matchmaking)
+### Match Lobbies & Competing Lobbies
+- Players race to fill lobbies and pay entry fees (held in escrow)
+- **Competing lobbies**: Multiple lobbies can exist for the same `field_timetable` slot simultaneously
+  - First lobby to fill `max_players` paid slots wins — calls `awardLobby()` in `server/routes/lobbies.ts`
+  - `awardLobby()`: confirms winner, releases escrow for winners, cancels all competing lobbies, issues `ESCROW_REFUND` to all paid players in losing lobbies, sets timetable to BOOKED
+  - `POST /lobbies`: accepts RESERVED slots (second+ competing lobby); only first lobby sets slot to RESERVED
+  - `POST /lobbies/:id/cancel`: only frees timetable to AVAILABLE if no other active lobbies remain for that slot
+- Lobby cards show orange "X competing" badge + orange top stripe when `competingLobbiesCount > 1`
+- `GET /api/lobbies` includes `competingLobbiesCount` (correlated subquery counting active lobbies per timetable_id)
 
-The captain's team formation is displayed on the Teams page and persists to team matchmaking:
+### Formation System (Team vs Team)
+- `DEFAULT_POINTS` slot IDs: `gk`, `lb`, `cb1`, `cb2`, `rb`, `lm`, `cm1`, `cm2`, `rm`, `st1`, `st2` (4-2-3-1)
+- `HOME_SLOT_TO_INDEX`: `gk→0, lb→1, cb1→2, cb2→3, rb→4, lm→5, cm1→6, cm2→7, rm→8, st1→9, st2→10`
+- `AWAY_SLOT_TO_INDEX`: mirrored (st1→0 … gk→10)
+- Captain saves layout → `POST /api/teams/:id/save-layout` → `teams.team_layout` JSON
+- `GET /api/lobbies/:id/formation` merges real DB users + saved layout name entries
+- Host sees "Waiting for Challenger…"; challenger captains see "Accept Challenge" button (checked via `createdBy === currentUserId`)
 
-**Frontend Flow:**
-- `App.tsx` maintains `generalSquadAssigned` (Record<slotId → playerName>) and `generalSquadPoints` (Formation positions)
-- `DEFAULT_POINTS` defines 11 slot IDs: `gk`, `lb`, `cb1`, `cb2`, `rb`, `lm`, `cm1`, `cm2`, `rm`, `st1`, `st2` (4-2-3-1 formation)
-- Captain clicks "Save Layout" on CaptainsDashboard → calls `handleSaveTeamLayout()` → `POST /api/teams/:teamId/save-layout`
+### Wallet & Escrow Flow
+1. **Load Funds**: `POST /api/payments/load` → balance increases, DEPOSIT transaction
+2. **Pay Lobby**: `POST /api/lobbies/:id/pay` → escrow increases, ESCROW_HOLD transaction
+3. **Lobby Wins** (fills first): `awardLobby()` → ESCROW_RELEASE for winner, ESCROW_REFUND for all competing lobby players
+4. **Cancel Lobby**: `POST /api/lobbies/:id/cancel` → ESCROW_REFUND for all paid participants
+5. **Leave Lobby**: `POST /api/lobbies/:id/leave` → ESCROW_REFUND if paid
 
-**Backend Persistence:**
-- New column: `teams.team_layout TEXT` stores JSON: `{ "st1": "Siya Kolisi", "cm1": "Thabo Mokoena", ... }`
-- Migration in `server/db/database.ts` auto-creates column on existing DBs
-- `POST /api/teams/:id/save-layout` validates captain, saves layout as JSON, persists to DB
+### Direct Messages (DMs)
+- `messages` table: `sender_id`, `receiver_id`, `is_request` (0 = normal, 1 = pending request)
+- `GET /api/messages/conversations` — distinct conversation partners with last message + unread count
+- `GET /api/messages/dm/:userId` — full message history
+- `POST /api/messages/dm/:userId` — sends message; if not friends AND no prior DM, sets `is_request = 1`
+- `PUT /api/messages/dm/:userId/accept` — clears `is_request` flag on pending messages
+- `PUT /api/messages/dm/:userId/decline` — deletes pending messages
+- Social page has "Messages" 4th tab showing conversations list + DM chat view
+- Pending requests show Accept/Decline buttons in a separate section
 
-**Matchmaking Display:**
-- When captain hosts Teams vs Teams, lobby is created with `teamId` parameter
-- `fillTeamPositions()` queries `team_members` DB and fills real users' positions (only the captain is guaranteed to be in DB as a real user)
-- `GET /api/lobbies/:id/formation` merges:
-  - Real positions from `lobby_positions` table (real user IDs only)
-  - Saved formation from `teams.team_layout` JSON (name-only entries, virtual IDs like `layout-st1`)
-  - Returns combined result with `user: { fullName: "playerName", ... }` for display
-- Frontend `TacticalPitch` renders both real users and layout entries identically (by player name)
+### Notifications
+- `notifications` table: user_id, type, title, body, is_read, related_entity_id
+- Types: `FRIEND_REQUEST`, `FRIEND_ACCEPTED`, `TEAM_INVITE`, `TEAM_JOIN_ACCEPTED`, `TEAM_JOIN_DECLINED`, `TEAM_JOIN_REQUEST`, `MATCH_TODAY`, `TEAM_MESSAGE`, `TEAM_BIO_UPDATE`, `DM_REQUEST`
+- `createNotification(db, {...})` helper exported from `server/routes/notifications.ts` — imported by social.ts, teams.ts, messages.ts to trigger notifications
+- `GET /api/notifications` — last 50, newest first
+- `PUT /api/notifications/:id/read` and `PUT /api/notifications/read-all`
+- Navigation.tsx has `Bell` icon with red badge showing `notificationCount`
+- `NotificationsPage.tsx` groups notifications Today/Yesterday/Earlier, marks all read after 2s
 
-**Key Implementation Details:**
-- Slot IDs must match between Teams page (`DEFAULT_POINTS`) and lobbies (`HOME_SLOT_TO_INDEX`) for roundtrip to work
-- `HOME_SLOT_TO_INDEX` mapping: `gk→0, lb→1, cb1→2, cb2→3, rb→4, lm→5, cm1→6, cm2→7, rm→8, st1→9, st2→10`
-- `AWAY_SLOT_TO_INDEX` is mirrored: `st1→0, st2→1, lm→2, cm1→3, cm2→4, rm→5, lb→6, cb1→7, cb2→8, rb→9, gk→10`
-- Formation names are virtual (not real user accounts) — only the DB user IDs in `team_members` are enforced by FK constraint
+### Social / Friends
+- Discover: browse all non-friend players, send friend request
+- Friends: accepted friend list, clickable profiles, DM button
+- `GET /api/social/discover` — paginated player search
+- `POST /api/social/friends/:id` — send request
+- `PUT /api/social/friends/:id/respond` — accept/decline
+- `DELETE /api/social/friends/:id` — unfriend
 
-### Wallet System
-- **Personal wallet**: Individual player funds, loaded via Profile page modal
-- **Escrow**: Funds held for pending matches (visible on Profile wallet tab)
-- **Team wallet**: Shared funds from member contributions
-- **Transaction history**: Full log with typed transactions (Credit, Debit, EscrowHold, EscrowRelease, EscrowRefund, TeamContribution)
-- All operations go through `walletService` for consistent state
-
-### Chat System
-- `LobbyChat` component used in Matchmaking and Training
-- Chat is locked (disabled) until player has paid entry fee
-- Messages use `LobbyMessage` type: `{ id, sender, text, time, isMe }`
-- Sender name pulled from `userProfile.fullName` (not hardcoded)
+---
 
 ## Styling
 
 - Tailwind CSS utility classes throughout
-- Modern, rounded design with heavy use of rounded-2xl, rounded-3xl
-- Color scheme: blue-600 primary, slate-900 for dark elements
-- Responsive design with mobile bottom nav and desktop top nav
-- Custom animations: fade-in, scale-in, etc.
+- Heavy use of `rounded-2xl`, `rounded-3xl`, `rounded-[40px]`, `rounded-[48px]`
+- Color scheme: blue-600 primary, slate-900 for dark elements, emerald for positive stats, amber/orange for competing/contested states
+- Responsive: mobile bottom nav + desktop top nav
+- Custom animations: `animate-fade-in`, `animate-spin` (loading spinner)
 
 ## Path Alias
 
 TypeScript path alias `@/*` maps to root directory (configured in tsconfig.json and vite.config.ts).
 
+---
+
 ## Important Patterns
 
 ### Adding New Pages
-1. Create a new feature folder under `features/` (or add to existing one)
-2. Add page component in `features/<feature>/pages/`
-3. Add feature-specific UI component in `features/<feature>/components/` if needed
-4. Export from the feature's `index.ts` barrel file
-5. Import in App.tsx from the feature barrel: `import { MyPage } from './features/<feature>'`
-6. Add case to `renderPage()` switch in App.tsx
-7. Update Navigation component if page needs nav button
-8. Add to `currentPage` type union
+1. Create page component in `features/<feature>/pages/`
+2. Export from the feature's `index.ts` barrel file
+3. Import in App.tsx from the feature barrel: `import { MyPage } from './features/<feature>'`
+4. Add to `currentPage` type union in App.tsx
+5. Add case to `renderPage()` switch in App.tsx
+6. Update Navigation.tsx if the page needs a nav button
 
-### Modifying State
-- Never mutate state directly
-- Use setter functions with spread operators
-- Example: `setUserProfile(prev => ({ ...prev, wallet: {...prev.wallet, balance: newBalance} }))`
-- For wallet changes, prefer going through `walletService` then syncing: `walletService.loadFunds(id, amount); handleUpdateUserWallet(walletService.getWallet(id));`
+### Adding New API Routes
+1. Add route handler in appropriate `server/routes/*.ts`
+2. Register in `server/index.ts` if it's a new router file
+3. Add typed client function in `frontend/api/*.ts`
+4. Export from `frontend/api/index.ts`
 
-### Working with Lobbies
-- Lobbies stored in `activeLobbies` state (initialized from `seedData.lobbies`)
-- Update via `setActiveLobbies()`
-- Integration with field timetables in Home page
-- Confirmation requires escrow payment through `walletService`
+### Adding DB Columns / Tables (Migrations)
+- Add `CREATE TABLE IF NOT EXISTS ...` or `ALTER TABLE ... ADD COLUMN ...` to the migrations array in `server/db/database.ts`
+- Migrations run at startup wrapped in try/catch (ignores "column already exists" errors)
+- Also update `server/db/schema.sql` for fresh DB installs
 
-### Working with the Wallet Service
-- Import: `import { walletService } from './services'`
-- Always sync React state after service calls: call `walletService.*()`, then `onUpdateUserWallet(walletService.getWallet(userId))`
-- Service throws errors on insufficient funds — wrap in try/catch
+### CSS Dropdown / Overflow Clipping Pattern
+- `overflow-x: auto` clips `position: absolute` children
+- Pattern: render dropdowns as siblings OUTSIDE the overflow container, inside a `relative` positioned wrapper
+- Used in App.tsx `teamTabStrip` (IIFE pattern): tab pills inside `overflow-x-auto`, dropdown rendered after it in the `relative` sticky wrapper at `absolute top-full`
 
-### Team Creation Flow
-1. User clicks "Build My Team Identity" on dashboard
-2. Navigate to CreateTeam page
-3. Select friends as team members
-4. Set team name and colors
-5. `handleCreateTeam()` in App.tsx creates team and switches role to CAPTAIN
+### applyAuthUser Pattern
+- Called after login, register, and session restore
+- Maps raw API response → `userProfile` React state
+- Must include ALL fields returned by auth endpoints to avoid stale state (id, fullName, position, fitnessLevel, dateOfBirth, yearsPlaying, avatarUrl, isVerified)
 
-### Teams vs Teams Formation Fixes (v2.1)
+### Wallet Operations (Backend)
+- All wallet mutations live in `server/routes/` (payments.ts, lobbies.ts)
+- Pattern: UPDATE wallets → INSERT transaction → db.save()
+- Frontend syncs via `getMyWallet()` after any wallet-affecting action
 
-Three issues were fixed to enable captain's full team formation display in team matches:
+---
 
-1. **Host's team formation now loads on matchmaking pitch**
-   - `DEFAULT_POINTS` slot IDs were misaligned with server `HOME_SLOT_TO_INDEX` mapping
-   - Changed Teams page slot IDs from `cdm`, `lw`, `st`, `rw` → `lm`, `cm2`, `st1`, `st2`
-   - This aligns with the 11-position 4-2-3-1 formation: GK, LB, CB, CB, RB, LM, CM, CM, RM, ST, ST
-   - Formation now persists via "Save Layout" → `POST /api/teams/:id/save-layout` → `teams.team_layout` JSON
+## Version History
 
-2. **Host no longer sees "Accept Challenge" on own match**
-   - Added `createdBy: string` to `MatchLobby` type (maps from `lobbies.created_by` column)
-   - `MatchmakingUI` checks `selectedLobby.createdBy === currentUserId` to show/hide challenge button
-   - Host sees "Waiting for Challenger..." instead, challenger captains see "Accept Challenge — R550"
+### v2.0 — Initial full-stack implementation
+- Express + SQLite backend wired to React frontend
+- Auth (register/login/JWT), teams, lobbies, matches, fields, social
 
-3. **Challenger's team auto-fills AWAY positions when accepting**
-   - Same `fillTeamPositions()` function used for both HOME (host team) and AWAY (challenger team)
-   - Uses `position_in_formation` mapping (though currently uses sequential fallback since positions saved to DB)
-   - `GET /api/lobbies/:id/formation` merges real DB users + saved layout entries from `teams.team_layout`
-   - Both host and challenger formations display even with only captain as real DB user
+### v2.1 — Formation System Fixes
+- `DEFAULT_POINTS` slot IDs aligned with `HOME_SLOT_TO_INDEX`
+- Host no longer sees "Accept Challenge" on own lobby (`createdBy` check)
+- Challenger team auto-fills AWAY positions on accept
 
-**Files Modified:**
-- `App.tsx`: Updated `DEFAULT_POINTS` slot IDs, added `handleSaveTeamLayout()`, wired `onSave` to CaptainsDashboard
-- `types.ts`: Added `createdBy?: string` to `MatchLobby`
-- `server/db/database.ts`: Added migration for `teams.team_layout TEXT` column
-- `server/routes/teams.ts`: Added `POST /:id/save-layout` endpoint
-- `server/routes/lobbies.ts`: Updated `GET /:id/formation` to merge saved layout with DB positions
-- `frontend/api/teams.ts`: Added `saveTeamLayout()` function
-- `features/dashboard/pages/CaptainsDashboard.tsx`: Added `onSave?: () => void` to props
-- `features/matchmaking/pages/Matchmaking.tsx`: Map `createdBy` in lobby list fetch, pass to UI
-- `features/matchmaking/components/MatchmakingUI.tsx`: Added `currentUserId` prop, check for host visibility of accept button
+### v2.2 — Social Features + Verification
+- **Delete/Leave Team**: `DELETE /api/teams/:id` for captains, leave endpoint for players
+- **Individual DMs**: message request gating, conversations list, accept/decline
+- **Notifications**: in-app bell, 10 notification types, `createNotification()` helper
+- **Photo Upload + ID Verification**: face photo required at registration → avatar; Gov ID → verified badge; `CheckCheck` badge throughout; removed all `picsum.photos` fallbacks
 
-### Backend Migration Path
-When implementing the server:
-1. Write SQLite schema in `server/db/schema.sql` matching `DataStore` interfaces in `services/database.ts`
-2. Implement route handlers in `server/routes/` mirroring `walletService` and `lobbyService` methods
-3. Build API client in `frontend/api/` to call server endpoints
-4. Replace `walletService.*()` calls with `api.payments.*()` calls
-5. Replace `seedDatabase()` with server-fetched data
-6. Shared types in `shared/types.ts` keep frontend and backend in sync
+### v2.3 — Player Stats + Profiles + Competing Lobbies
+- **Live Player Stats**: `GET /matches/stats/me` with cleanSheets; Profile fetches live via `getMyStats()`
+- **Clickable Player Profiles**: `PlayerProfilePage.tsx` — read-only profile from Social page
+- **Age + Experience in Bio**: dateOfBirth → calculated age; yearsPlaying stored at registration, shown in bio
+- **Competing Lobbies**: multiple lobbies for same field slot; `awardLobby()` confirms winner + refunds losers; CONTESTED badge on lobby cards

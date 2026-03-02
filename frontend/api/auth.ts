@@ -12,6 +12,8 @@ interface RegisterData {
   position?: string;
   fitnessLevel?: string;
   avatarBase64?: string;
+  dateOfBirth?: string;
+  yearsPlaying?: number;
 }
 
 interface LoginData {
@@ -29,6 +31,8 @@ interface AuthResponse {
     position: string | null;
     fitnessLevel: string | null;
     city: string | null;
+    dateOfBirth?: string | null;
+    yearsPlaying?: number;
   };
 }
 

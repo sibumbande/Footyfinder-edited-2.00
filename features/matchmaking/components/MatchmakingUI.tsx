@@ -587,10 +587,18 @@ export const MatchmakingUI: React.FC<MatchmakingUIProps> = ({
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                       {items.map(lobby => (
-                        <div key={lobby.id} onClick={() => onEnterLobby(lobby, false, 'QUICK_PLAY')} className="bg-white p-10 rounded-[48px] border border-slate-100 shadow-sm hover:shadow-xl cursor-pointer group transition-all">
+                        <div key={lobby.id} onClick={() => onEnterLobby(lobby, false, 'QUICK_PLAY')} className="bg-white p-10 rounded-[48px] border border-slate-100 shadow-sm hover:shadow-xl cursor-pointer group transition-all relative overflow-hidden">
+                          {lobby.competingLobbiesCount && lobby.competingLobbiesCount > 1 && (
+                            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-orange-400 to-amber-500" />
+                          )}
                           <div className="flex justify-between items-start mb-4">
                             <h3 className="text-xl font-black uppercase tracking-tight group-hover:text-blue-600 transition-colors">{lobby.fieldName}</h3>
-                            <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">{lobby.joinedCount}/{lobby.totalSlots}</span>
+                            <div className="flex flex-col items-end gap-1">
+                              <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">{lobby.joinedCount}/{lobby.totalSlots}</span>
+                              {lobby.competingLobbiesCount && lobby.competingLobbiesCount > 1 && (
+                                <span className="bg-orange-50 text-orange-600 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">{lobby.competingLobbiesCount} competing</span>
+                              )}
+                            </div>
                           </div>
                           <div className="space-y-2">
                             <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest flex items-center gap-2"><MapPin size={12}/> {lobby.location}</p>

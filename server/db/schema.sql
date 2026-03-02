@@ -507,7 +507,7 @@ CREATE TABLE IF NOT EXISTS notifications (
                            'FRIEND_REQUEST', 'FRIEND_ACCEPTED',
                            'TEAM_INVITE', 'TEAM_JOIN_ACCEPTED', 'TEAM_JOIN_DECLINED',
                            'TEAM_JOIN_REQUEST', 'MATCH_TODAY',
-                           'TEAM_MESSAGE', 'TEAM_BIO_UPDATE', 'DM_REQUEST'
+                           'TEAM_MESSAGE', 'TEAM_BIO_UPDATE', 'DM_REQUEST', 'LOBBY_CANCELLED'
                        )),
     title              TEXT NOT NULL,
     body               TEXT NOT NULL,

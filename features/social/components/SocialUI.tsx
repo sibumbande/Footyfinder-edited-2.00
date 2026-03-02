@@ -1,7 +1,7 @@
 
-import React, { useState } from 'react';
-import { Search, UserPlus, Users, ShieldCheck, Heart, UserMinus, MapPin, Shield, CheckCircle2, Clock, UserCheck, Mail } from 'lucide-react';
-import { SoccerProfile } from '../../../types';
+import React, { useState, useRef, useEffect } from 'react';
+import { Search, UserPlus, Users, ShieldCheck, Heart, UserMinus, MapPin, Shield, CheckCircle2, Clock, UserCheck, Mail, MessageCircle, ArrowLeft, Send, Inbox } from 'lucide-react';
+import { SoccerProfile, DMMessage, DMConversation } from '../../../types';
 import { TeamListing, JoinRequest, TeamInvite } from '../pages/Social';
 
 const CITY_ORDER = ['Cape Town', 'Johannesburg', 'Port Elizabeth'];
@@ -27,6 +27,16 @@ interface SocialUIProps {
   onDeclineJoinRequest: (requestId: string) => void;
   onAcceptTeamInvite: (inviteId: string) => void;
   onDeclineTeamInvite: (inviteId: string) => void;
+  conversations: DMConversation[];
+  activeDM: { userId: string; name: string; avatar: string } | null;
+  dmMessages: DMMessage[];
+  dmLoading: boolean;
+  onOpenDM: (userId: string, name: string, avatar: string) => void;
+  onCloseDM: () => void;
+  onSendDM: (content: string) => void;
+  onAcceptMsgRequest: (userId: string) => void;
+  onDeclineMsgRequest: (userId: string) => void;
+  onViewProfile: (userId: string) => void;
 }
 
 function groupByCity(teams: TeamListing[]): { city: string; teams: TeamListing[] }[] {
@@ -48,9 +58,18 @@ export const SocialUI: React.FC<SocialUIProps> = ({
   onAddToTeam, onRequestToJoin, onToggleRecruiting,
   onAcceptJoinRequest, onDeclineJoinRequest,
   onAcceptTeamInvite, onDeclineTeamInvite,
+  conversations, activeDM, dmMessages, dmLoading,
+  onOpenDM, onCloseDM, onSendDM, onAcceptMsgRequest, onDeclineMsgRequest,
+  onViewProfile,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'discover' | 'friends' | 'teams'>('discover');
+  const [activeTab, setActiveTab] = useState<'discover' | 'friends' | 'teams' | 'messages'>('discover');
+  const [dmInput, setDmInput] = useState('');
+  const dmScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    dmScrollRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [dmMessages]);
 
   const friendIds = friends.map(f => f.id);
   const isCaptain = userRole === 'CAPTAIN';
@@ -126,24 +145,31 @@ export const SocialUI: React.FC<SocialUIProps> = ({
             <h1 className="text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">Social Network</h1>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-4">Players, friends, and squads in your city</p>
           </div>
-          <div className="flex bg-slate-100 p-1.5 rounded-[20px] gap-1">
+          <div className="flex flex-wrap bg-slate-100 p-1.5 rounded-[20px] gap-1">
             <button
               onClick={() => setActiveTab('discover')}
-              className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'discover' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
+              className={`px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'discover' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
             >
               Discover
             </button>
             <button
               onClick={() => setActiveTab('friends')}
-              className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'friends' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
+              className={`px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'friends' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
             >
               Friends ({friends.length})
             </button>
             <button
               onClick={() => setActiveTab('teams')}
-              className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'teams' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
+              className={`px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'teams' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
             >
               Teams
+            </button>
+            <button
+              onClick={() => setActiveTab('messages')}
+              className={`px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${activeTab === 'messages' ? 'bg-violet-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
+            >
+              <MessageCircle size={13} />
+              DMs {conversations.length > 0 && `(${conversations.length})`}
             </button>
           </div>
         </div>
@@ -172,20 +198,28 @@ export const SocialUI: React.FC<SocialUIProps> = ({
             discoverProfiles.map(profile => (
               <div key={profile.id} className="bg-white rounded-[40px] p-8 border border-slate-100 shadow-sm hover:shadow-xl transition-all group overflow-hidden relative">
                 <div className="flex flex-col items-center text-center">
-                  <div className="relative mb-6">
+                  <div className="relative mb-6 cursor-pointer" onClick={() => onViewProfile(profile.id)}>
                     <img src={profile.avatar} alt="" className="w-24 h-24 rounded-[32px] object-cover shadow-2xl group-hover:scale-105 transition-transform" />
                     <div className="absolute -bottom-2 -right-2 bg-blue-600 text-white p-2 rounded-xl shadow-lg border-4 border-white">
                       <ShieldCheck size={16} />
                     </div>
                   </div>
-                  <h3 className="text-lg font-black uppercase text-slate-900 tracking-tight leading-none mb-2">{profile.fullName}</h3>
+                  <h3 className="text-lg font-black uppercase text-slate-900 tracking-tight leading-none mb-2 cursor-pointer hover:text-blue-600 transition-colors" onClick={() => onViewProfile(profile.id)}>{profile.fullName}</h3>
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-8">{profile.position}</p>
-                  <button
-                    onClick={() => onAddFriend(profile)}
-                    className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-600 transition-all flex items-center justify-center gap-2 active:scale-95 shadow-lg"
-                  >
-                    <UserPlus size={16} /> Add Friend
-                  </button>
+                  <div className="w-full flex gap-2">
+                    <button
+                      onClick={() => onAddFriend(profile)}
+                      className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-600 transition-all flex items-center justify-center gap-2 active:scale-95 shadow-lg"
+                    >
+                      <UserPlus size={14} /> Add
+                    </button>
+                    <button
+                      onClick={() => { setActiveTab('messages'); onOpenDM(profile.id, profile.fullName, profile.avatar); }}
+                      className="py-4 px-4 bg-violet-50 text-violet-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-violet-600 hover:text-white transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-sm border border-violet-100"
+                    >
+                      <MessageCircle size={14} />
+                    </button>
+                  </div>
                 </div>
                 <div className="absolute -top-10 -left-10 w-24 h-24 bg-blue-50 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
               </div>
@@ -209,9 +243,9 @@ export const SocialUI: React.FC<SocialUIProps> = ({
               {myFriends.map(friend => (
                 <div key={friend.id} className="bg-white rounded-[40px] p-8 border border-slate-100 shadow-sm hover:shadow-xl transition-all group relative overflow-hidden">
                   <div className="flex items-center gap-6 mb-5">
-                    <img src={friend.avatar} alt="" className="w-20 h-20 rounded-[24px] object-cover shadow-lg border-2 border-slate-50" />
+                    <img src={friend.avatar} alt="" className="w-20 h-20 rounded-[24px] object-cover shadow-lg border-2 border-slate-50 cursor-pointer hover:opacity-90 transition-opacity" onClick={() => onViewProfile(friend.id)} />
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-base font-black uppercase text-slate-900 tracking-tight leading-none mb-1 truncate">{friend.fullName}</h3>
+                      <h3 className="text-base font-black uppercase text-slate-900 tracking-tight leading-none mb-1 truncate cursor-pointer hover:text-blue-600 transition-colors" onClick={() => onViewProfile(friend.id)}>{friend.fullName}</h3>
                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{friend.position}</p>
                     </div>
                   </div>
@@ -232,6 +266,12 @@ export const SocialUI: React.FC<SocialUIProps> = ({
                         </button>
                       )
                     )}
+                    <button
+                      onClick={() => { setActiveTab('messages'); onOpenDM(friend.id, friend.fullName, friend.avatar); }}
+                      className="p-3 bg-violet-50 text-violet-600 rounded-xl hover:bg-violet-600 hover:text-white transition-all shadow-sm"
+                    >
+                      <MessageCircle size={14} />
+                    </button>
                     <button
                       onClick={() => onRemoveFriend(friend.id)}
                       className="p-3 bg-red-50 text-red-600 rounded-xl hover:bg-red-600 hover:text-white transition-all shadow-sm"
@@ -396,6 +436,175 @@ export const SocialUI: React.FC<SocialUIProps> = ({
                 </div>
               </div>
             ))
+          )}
+        </div>
+      )}
+
+      {/* ── MESSAGES TAB ── */}
+      {activeTab === 'messages' && (
+        <div className="animate-fade-in">
+          {activeDM ? (
+            /* ── DM Chat View ── */
+            <div className="bg-white rounded-[48px] overflow-hidden shadow-sm border border-slate-100 flex flex-col" style={{ minHeight: '520px' }}>
+              {/* Chat header */}
+              <div className="bg-slate-900 px-8 py-6 flex items-center gap-4">
+                <button onClick={onCloseDM} className="p-2 rounded-xl bg-white/10 hover:bg-white/20 transition-all text-white">
+                  <ArrowLeft size={18} />
+                </button>
+                <img src={activeDM.avatar} alt="" className="w-10 h-10 rounded-xl object-cover border-2 border-white/20" />
+                <div>
+                  <p className="font-black text-sm uppercase text-white tracking-tight">{activeDM.name}</p>
+                  <p className="text-[9px] text-blue-400 font-bold uppercase tracking-widest">Direct Message</p>
+                </div>
+              </div>
+
+              {/* Messages */}
+              <div className="flex-1 p-8 overflow-y-auto space-y-4 bg-slate-50/30" style={{ maxHeight: '360px' }}>
+                {dmLoading ? (
+                  <div className="flex justify-center py-10">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600" />
+                  </div>
+                ) : dmMessages.length === 0 ? (
+                  <div className="text-center py-10">
+                    <MessageCircle className="mx-auto text-slate-200 mb-3" size={40} />
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">No messages yet. Say hi!</p>
+                  </div>
+                ) : (
+                  dmMessages.map(msg => {
+                    const isMe = msg.senderId === undefined ? false : true; // rely on senderName vs activeDM
+                    const isMine = msg.senderName !== activeDM.name;
+                    return (
+                      <div key={msg.id} className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}>
+                        <div className="flex items-center gap-2 mb-1 px-1 text-[8px] font-black uppercase tracking-widest text-slate-400">
+                          <span>{msg.senderName}</span>
+                          <span>•</span>
+                          <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                        <div className={`px-5 py-3 rounded-[24px] text-xs font-bold max-w-[80%] shadow-sm ${
+                          isMine ? 'bg-violet-600 text-white' : 'bg-white border border-slate-100 text-slate-800'
+                        }`}>
+                          {msg.isRequest && (
+                            <span className="block text-[9px] uppercase tracking-widest opacity-70 mb-1">Message Request</span>
+                          )}
+                          {msg.content}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                <div ref={dmScrollRef} />
+              </div>
+
+              {/* Input */}
+              <div className="p-6 bg-white border-t border-slate-100">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={dmInput}
+                    onChange={e => setDmInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && dmInput.trim()) { e.preventDefault(); onSendDM(dmInput.trim()); setDmInput(''); } }}
+                    placeholder="Send a message..."
+                    className="flex-1 bg-slate-50 rounded-[20px] px-6 py-4 text-xs font-bold outline-none focus:ring-2 focus:ring-violet-500 border-none"
+                  />
+                  <button
+                    onClick={() => { if (dmInput.trim()) { onSendDM(dmInput.trim()); setDmInput(''); } }}
+                    disabled={!dmInput.trim()}
+                    className="p-4 bg-slate-900 text-white rounded-[20px] hover:bg-violet-600 transition-all shadow-xl active:scale-95 disabled:opacity-50"
+                  >
+                    <Send size={18} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* ── Conversations List ── */
+            <div className="space-y-4">
+              {/* Pending message requests */}
+              {conversations.filter(c => c.isPending).length > 0 && (
+                <div className="bg-white rounded-[48px] p-10 shadow-sm border border-amber-100">
+                  <h2 className="text-sm font-black uppercase tracking-tighter text-slate-900 mb-6 flex items-center gap-3">
+                    <div className="w-8 h-8 bg-amber-100 rounded-xl flex items-center justify-center">
+                      <Inbox size={16} className="text-amber-600" />
+                    </div>
+                    Message Requests ({conversations.filter(c => c.isPending).length})
+                  </h2>
+                  <div className="space-y-3">
+                    {conversations.filter(c => c.isPending).map(conv => (
+                      <div key={conv.userId} className="flex items-center justify-between p-4 bg-amber-50 rounded-2xl gap-4">
+                        <button
+                          onClick={() => onOpenDM(conv.userId, conv.fullName, conv.avatar)}
+                          className="flex items-center gap-4 flex-1 min-w-0 text-left"
+                        >
+                          <img src={conv.avatar} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />
+                          <div className="min-w-0">
+                            <p className="font-black text-sm uppercase text-slate-900 truncate">{conv.fullName}</p>
+                            <p className="text-[10px] text-slate-500 font-medium truncate mt-0.5">{conv.lastMessage}</p>
+                          </div>
+                        </button>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            onClick={() => onAcceptMsgRequest(conv.userId)}
+                            className="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-700 transition-all"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            onClick={() => onDeclineMsgRequest(conv.userId)}
+                            className="px-4 py-2.5 bg-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-red-100 hover:text-red-600 transition-all"
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* All conversations */}
+              <div className="bg-white rounded-[48px] p-10 shadow-sm border border-slate-100">
+                <h2 className="text-sm font-black uppercase tracking-tighter text-slate-900 mb-6 flex items-center gap-3">
+                  <div className="w-8 h-8 bg-violet-100 rounded-xl flex items-center justify-center">
+                    <MessageCircle size={16} className="text-violet-600" />
+                  </div>
+                  Messages
+                </h2>
+                {conversations.filter(c => !c.isPending).length === 0 ? (
+                  <div className="py-16 text-center">
+                    <MessageCircle className="mx-auto text-slate-200 mb-4" size={48} />
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-relaxed">
+                      No conversations yet.<br />Message a friend or player to get started.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {conversations.filter(c => !c.isPending).map(conv => (
+                      <button
+                        key={conv.userId}
+                        onClick={() => onOpenDM(conv.userId, conv.fullName, conv.avatar)}
+                        className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-slate-50 transition-all text-left group"
+                      >
+                        <img src={conv.avatar} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-0.5">
+                            <p className="font-black text-sm uppercase text-slate-900 truncate">{conv.fullName}</p>
+                            <p className="text-[9px] text-slate-400 font-bold shrink-0 ml-2">
+                              {new Date(conv.lastAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                            </p>
+                          </div>
+                          <p className="text-[11px] text-slate-500 font-medium truncate">{conv.lastMessage}</p>
+                        </div>
+                        {conv.unreadCount > 0 && (
+                          <div className="w-5 h-5 bg-violet-600 rounded-full flex items-center justify-center shrink-0">
+                            <span className="text-[9px] font-black text-white">{conv.unreadCount}</span>
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </div>
       )}

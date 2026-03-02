@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { getDb } from '../db/database.js';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
+import { createNotification } from './notifications.js';
 
 const router = Router();
 
@@ -114,6 +115,16 @@ router.post('/friend-request', (req, res: Response) => {
 
     db.save();
 
+    // Notify the addressee
+    const sender = db.prepare('SELECT full_name FROM users WHERE id = ?').get(userId) as { full_name: string } | undefined;
+    createNotification(db, {
+      userId: addresseeId,
+      type: 'FRIEND_REQUEST',
+      title: 'New Friend Request',
+      body: `${sender?.full_name ?? 'Someone'} sent you a friend request`,
+      relatedEntityId: requestId,
+    });
+
     res.status(201).json({ message: `Friend request sent to ${addressee.full_name}`, requestId });
   } catch (err: any) {
     console.error('[Social] POST /friend-request error:', err.message);
@@ -157,6 +168,17 @@ router.put('/friend-request/:id', (req, res: Response) => {
 
     db.prepare('UPDATE friendships SET status = ? WHERE id = ?').run(status, id);
     db.save();
+
+    if (status === 'ACCEPTED') {
+      const accepter = db.prepare('SELECT full_name FROM users WHERE id = ?').get(userId) as { full_name: string } | undefined;
+      createNotification(db, {
+        userId: request.requester_id,
+        type: 'FRIEND_ACCEPTED',
+        title: 'Friend Request Accepted',
+        body: `${accepter?.full_name ?? 'Someone'} accepted your friend request`,
+        relatedEntityId: id,
+      });
+    }
 
     res.json({ message: `Friend request ${status.toLowerCase()}` });
   } catch (err: any) {

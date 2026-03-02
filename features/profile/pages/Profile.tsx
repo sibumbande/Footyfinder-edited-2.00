@@ -7,7 +7,7 @@ import {
   ArrowRight, Activity, X, Lock, Loader2, AlertCircle, Pencil, Phone, AtSign, Image, Save, User, CheckCheck
 } from 'lucide-react';
 import { PlayerPosition, FitnessLevel, WalletTransaction, UserProfileData, MatchRecord } from '../../../types';
-import { getMyWallet, loadFunds as apiLoadFunds, getTransactions, getTrainingStats, updateMe, verifyId, ApiError } from '../../../frontend/api';
+import { getMyWallet, loadFunds as apiLoadFunds, getTransactions, getTrainingStats, getMyStats, updateMe, verifyId, ApiError } from '../../../frontend/api';
 
 interface ProfileProps {
   userProfile: UserProfileData;
@@ -32,6 +32,7 @@ export const Profile: React.FC<ProfileProps> = ({ userProfile, matchHistory = []
   }[]>([]);
   const [walletLoading, setWalletLoading] = useState(false);
   const [trainingSessionCount, setTrainingSessionCount] = useState(0);
+  const [liveStats, setLiveStats] = useState({ goals: 0, assists: 0, matchesPlayed: 0, cleanSheets: 0 });
 
   // Edit profile state
   const [editing, setEditing] = useState(false);
@@ -42,6 +43,7 @@ export const Profile: React.FC<ProfileProps> = ({ userProfile, matchHistory = []
   const [editPhone, setEditPhone] = useState(userProfile.phone || '');
   const [editBio, setEditBio] = useState(userProfile.bio || '');
   const [editAvatarUrl, setEditAvatarUrl] = useState(userProfile.avatar || '');
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [verifying, setVerifying] = useState(false);
@@ -66,6 +68,14 @@ export const Profile: React.FC<ProfileProps> = ({ userProfile, matchHistory = []
     if (userProfile.id) {
       getTrainingStats(userProfile.id)
         .then(data => setTrainingSessionCount(data.trainingSessions))
+        .catch(() => {});
+      getMyStats()
+        .then(data => setLiveStats({
+          goals: data.totalGoals,
+          assists: data.totalAssists,
+          matchesPlayed: data.totalMatches,
+          cleanSheets: data.cleanSheets,
+        }))
         .catch(() => {});
     }
   }, [fetchWallet, userProfile.id]);
@@ -131,6 +141,15 @@ export const Profile: React.FC<ProfileProps> = ({ userProfile, matchHistory = []
   };
 
   const user = userProfile;
+
+  const calcAge = (dob: string) => {
+    if (!dob) return null;
+    const birth = new Date(dob);
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    if (today.getMonth() < birth.getMonth() || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) age--;
+    return age;
+  };
 
   const positionAbbr: Record<string, string> = {
     'Goalkeeper': 'GK',
@@ -211,22 +230,26 @@ export const Profile: React.FC<ProfileProps> = ({ userProfile, matchHistory = []
             <div className="lg:col-span-2 space-y-10">
               <section className="bg-white rounded-[40px] shadow-sm border border-gray-100 p-10">
                 <h2 className="text-xl font-black text-gray-900 uppercase tracking-tight mb-8">On-Pitch Metrics</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                  <div className="p-8 bg-blue-50 rounded-[32px] border border-blue-100 shadow-inner">
-                    <p className="text-[10px] text-blue-600 font-black uppercase tracking-widest mb-3">Tactical Position</p>
+                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+                  <div className="p-6 bg-blue-50 rounded-[28px] border border-blue-100 shadow-inner">
+                    <p className="text-[9px] text-blue-600 font-black uppercase tracking-widest mb-3">Position</p>
                     <p className="text-2xl font-black text-gray-900 leading-none">{positionAbbr[user.position as string] || user.position || '—'}</p>
                   </div>
-                  <div className="p-8 bg-emerald-50 rounded-[32px] border border-emerald-100 shadow-inner">
-                    <p className="text-[10px] text-emerald-600 font-black uppercase tracking-widest mb-3">Matches Played</p>
-                    <p className="text-2xl font-black text-gray-900 leading-none">{user.stats.matchesPlayed}</p>
+                  <div className="p-6 bg-emerald-50 rounded-[28px] border border-emerald-100 shadow-inner">
+                    <p className="text-[9px] text-emerald-600 font-black uppercase tracking-widest mb-3">Matches</p>
+                    <p className="text-2xl font-black text-gray-900 leading-none">{liveStats.matchesPlayed}</p>
                   </div>
-                  <div className="p-8 bg-amber-50 rounded-[32px] border border-amber-100 shadow-inner">
-                    <p className="text-[10px] text-amber-600 font-black uppercase tracking-widest mb-3">Goals / Assists</p>
-                    <p className="text-2xl font-black text-gray-900 leading-none">{user.stats.goals} / {user.stats.assists}</p>
+                  <div className="p-6 bg-amber-50 rounded-[28px] border border-amber-100 shadow-inner">
+                    <p className="text-[9px] text-amber-600 font-black uppercase tracking-widest mb-3">Goals</p>
+                    <p className="text-2xl font-black text-gray-900 leading-none">{liveStats.goals}</p>
                   </div>
-                  <div className="p-8 bg-purple-50 rounded-[32px] border border-purple-100 shadow-inner">
-                    <p className="text-[10px] text-purple-600 font-black uppercase tracking-widest mb-3">Training Sessions</p>
-                    <p className="text-2xl font-black text-gray-900 leading-none">{trainingSessionCount}</p>
+                  <div className="p-6 bg-rose-50 rounded-[28px] border border-rose-100 shadow-inner">
+                    <p className="text-[9px] text-rose-600 font-black uppercase tracking-widest mb-3">Assists</p>
+                    <p className="text-2xl font-black text-gray-900 leading-none">{liveStats.assists}</p>
+                  </div>
+                  <div className="p-6 bg-teal-50 rounded-[28px] border border-teal-100 shadow-inner">
+                    <p className="text-[9px] text-teal-600 font-black uppercase tracking-widest mb-3">Clean Sheets</p>
+                    <p className="text-2xl font-black text-gray-900 leading-none">{liveStats.cleanSheets}</p>
                   </div>
                 </div>
               </section>
@@ -286,6 +309,27 @@ export const Profile: React.FC<ProfileProps> = ({ userProfile, matchHistory = []
                       <p className="text-sm font-black text-slate-900">{user.position || <span className="text-slate-400 font-medium">Not set</span>}</p>
                     </div>
                   </div>
+
+                  {/* Age + Years Playing */}
+                  {(user.dateOfBirth || user.yearsPlaying > 0) && (
+                    <div className="flex items-start gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <Calendar size={15} className="text-slate-400 shrink-0 mt-0.5" />
+                      <div>
+                        {user.dateOfBirth && calcAge(user.dateOfBirth) !== null && (
+                          <div className="mb-2">
+                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Age</p>
+                            <p className="text-sm font-black text-slate-900">{calcAge(user.dateOfBirth)} years old</p>
+                          </div>
+                        )}
+                        {user.yearsPlaying > 0 && (
+                          <div>
+                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Experience</p>
+                            <p className="text-sm font-black text-slate-900">{user.yearsPlaying} {user.yearsPlaying === 1 ? 'year' : 'years'} playing</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Fitness Level */}
                   <div className="flex items-start gap-3 p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
@@ -562,22 +606,45 @@ export const Profile: React.FC<ProfileProps> = ({ userProfile, matchHistory = []
                   />
                 </div>
 
-                {/* Avatar URL */}
+                {/* Avatar Photo Upload */}
                 <div>
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 block">Profile Photo URL</label>
-                  <input
-                    type="url"
-                    value={editAvatarUrl}
-                    onChange={e => setEditAvatarUrl(e.target.value)}
-                    className="w-full bg-slate-50 rounded-2xl px-5 py-4 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500 border border-slate-100"
-                    placeholder="https://example.com/photo.jpg"
-                  />
-                  {editAvatarUrl && (
-                    <div className="mt-3 flex items-center gap-3">
-                      <img src={editAvatarUrl} alt="Preview" className="w-12 h-12 rounded-xl object-cover border border-slate-200" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                      <span className="text-[10px] text-slate-400 font-bold uppercase">Preview</span>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 block">Profile Photo</label>
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-slate-100 bg-slate-50 shrink-0">
+                      {editAvatarUrl ? (
+                        <img src={editAvatarUrl} alt="Preview" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <Image size={20} className="text-slate-300" />
+                        </div>
+                      )}
                     </div>
-                  )}
+                    <label className={`flex-1 cursor-pointer flex items-center justify-center gap-2 py-4 rounded-2xl border-2 border-dashed transition-all text-xs font-black uppercase tracking-widest ${avatarUploading ? 'border-blue-300 text-blue-400' : 'border-slate-200 text-slate-400 hover:border-blue-400 hover:text-blue-500'}`}>
+                      <Image size={16} />
+                      {avatarUploading ? 'Processing...' : editAvatarUrl ? 'Change Photo' : 'Upload Photo'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={avatarUploading}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          setAvatarUploading(true);
+                          try {
+                            const base64 = await new Promise<string>((resolve, reject) => {
+                              const reader = new FileReader();
+                              reader.onload = () => resolve(reader.result as string);
+                              reader.onerror = reject;
+                              reader.readAsDataURL(file);
+                            });
+                            setEditAvatarUrl(base64);
+                          } catch { /* ignore */ }
+                          finally { setAvatarUploading(false); }
+                        }}
+                      />
+                    </label>
+                  </div>
                 </div>
 
                 {/* Bio */}

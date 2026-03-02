@@ -95,12 +95,14 @@ export interface MatchLobby {
   teamBFunded?: boolean;
   createdBy?: string;
   city?: string;
+  competingLobbiesCount?: number;
 }
 
 export interface PlayerStats {
   goals: number;
   assists: number;
   matchesPlayed: number;
+  cleanSheets: number;
 }
 
 export interface UserProfileData {
@@ -198,7 +200,7 @@ export interface AppNotification {
   id: string;
   type: 'FRIEND_REQUEST' | 'FRIEND_ACCEPTED' | 'TEAM_INVITE' | 'TEAM_JOIN_ACCEPTED'
       | 'TEAM_JOIN_DECLINED' | 'TEAM_JOIN_REQUEST' | 'MATCH_TODAY'
-      | 'TEAM_MESSAGE' | 'TEAM_BIO_UPDATE' | 'DM_REQUEST';
+      | 'TEAM_MESSAGE' | 'TEAM_BIO_UPDATE' | 'DM_REQUEST' | 'LOBBY_CANCELLED';
   title: string;
   body: string;
   isRead: boolean;

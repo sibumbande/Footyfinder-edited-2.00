@@ -16,7 +16,7 @@ router.get('/me', (req, res: Response) => {
 
     const user = db.prepare(
       `SELECT id, email, username, full_name, phone, avatar_url, position,
-              fitness_level, bio, city, created_at, is_verified
+              fitness_level, bio, city, created_at, is_verified, date_of_birth, years_playing
        FROM users WHERE id = ?`
     ).get(userId) as Record<string, any> | undefined;
 
@@ -51,6 +51,8 @@ router.get('/me', (req, res: Response) => {
         city: user.city,
         createdAt: user.created_at,
         isVerified: user.is_verified === 1,
+        dateOfBirth: user.date_of_birth || null,
+        yearsPlaying: user.years_playing ?? 0,
       },
       wallet: wallet ? { balance: wallet.balance, escrow: wallet.escrow } : { balance: 0, escrow: 0 },
       team: membership ? { id: membership.team_id, name: membership.team_name, role: membership.role } : null,
@@ -234,7 +236,7 @@ router.get('/:id', (req, res: Response) => {
     const db = getDb();
 
     const user = db.prepare(
-      `SELECT id, username, full_name, avatar_url, position, fitness_level, city, bio
+      `SELECT id, username, full_name, avatar_url, position, fitness_level, city, bio, date_of_birth, is_verified, years_playing
        FROM users WHERE id = ?`
     ).get(id) as Record<string, any> | undefined;
 
@@ -253,11 +255,65 @@ router.get('/:id', (req, res: Response) => {
         fitnessLevel: user.fitness_level,
         city: user.city,
         bio: user.bio,
+        dateOfBirth: user.date_of_birth || null,
+        isVerified: user.is_verified === 1,
+        yearsPlaying: user.years_playing ?? 0,
       },
     });
   } catch (err: any) {
     console.error('[Users] GET /:id error:', err.message);
     res.status(500).json({ error: 'Failed to fetch user' });
+  }
+});
+
+// ── GET /:id/match-stats — Public match stats for any player ────────────────
+
+router.get('/:id/match-stats', (req, res: Response) => {
+  try {
+    const { id } = req.params;
+    const db = getDb();
+
+    const stats = db.prepare(
+      `SELECT
+         count(*) AS total_matches,
+         coalesce(sum(mp.goals), 0) AS total_goals,
+         coalesce(sum(mp.assists), 0) AS total_assists,
+         round(avg(mp.rating), 2) AS average_rating
+       FROM match_players mp
+       JOIN matches m ON m.id = mp.match_id
+       WHERE mp.user_id = ? AND m.status = 'COMPLETED'`
+    ).get(id) as Record<string, any>;
+
+    const matchResults = db.prepare(
+      `SELECT mp.team_side, m.score_home, m.score_away
+       FROM match_players mp
+       JOIN matches m ON m.id = mp.match_id
+       WHERE mp.user_id = ? AND m.status = 'COMPLETED'`
+    ).all(id) as Record<string, any>[];
+
+    let wins = 0, losses = 0, draws = 0, cleanSheets = 0;
+    for (const r of matchResults) {
+      const myScore = r.team_side === 'HOME' ? r.score_home : r.score_away;
+      const oppScore = r.team_side === 'HOME' ? r.score_away : r.score_home;
+      if (myScore > oppScore) wins++;
+      else if (myScore < oppScore) losses++;
+      else draws++;
+      if (oppScore === 0) cleanSheets++;
+    }
+
+    res.json({
+      totalMatches: stats.total_matches,
+      totalGoals: stats.total_goals,
+      totalAssists: stats.total_assists,
+      averageRating: stats.average_rating,
+      wins,
+      losses,
+      draws,
+      cleanSheets,
+    });
+  } catch (err: any) {
+    console.error('[Users] GET /:id/match-stats error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch match stats' });
   }
 });
 

@@ -1,11 +1,12 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { SocialUI } from '../components/SocialUI';
-import { SoccerProfile, PlayerPosition } from '../../../types';
+import { SoccerProfile, PlayerPosition, DMMessage, DMConversation } from '../../../types';
 import {
   discoverPlayers, getFriends, getFriendRequests, sendFriendRequest, respondToFriendRequest,
   getAllTeams, toggleTeamRecruiting, inviteToTeam, requestToJoinTeam, getTeamJoinRequests, respondToJoinRequest,
   getMyTeamInvites, respondToTeamInvite,
+  getConversations, getDMs, sendDM, acceptMessageRequest, declineMessageRequest,
   ApiError,
 } from '../../../frontend/api';
 
@@ -45,6 +46,7 @@ interface SocialProps {
   userTeam?: { id: string; name: string } | null;
   userId?: string;
   onTeamRefresh?: () => void;
+  onViewProfile?: (userId: string) => void;
 }
 
 export const Social: React.FC<SocialProps> = ({
@@ -56,6 +58,7 @@ export const Social: React.FC<SocialProps> = ({
   userTeam,
   userId,
   onTeamRefresh,
+  onViewProfile,
 }) => {
   const [apiFriends, setApiFriends] = useState<SoccerProfile[] | null>(null);
   const [discoverList, setDiscoverList] = useState<SoccerProfile[] | null>(null);
@@ -69,6 +72,10 @@ export const Social: React.FC<SocialProps> = ({
   const [pendingInviteIds, setPendingInviteIds] = useState<Set<string>>(new Set());
   const [sentInviteIds, setSentInviteIds] = useState<Set<string>>(new Set());
   const [pendingJoinTeamIds, setPendingJoinTeamIds] = useState<Set<string>>(new Set());
+  const [conversations, setConversations] = useState<DMConversation[]>([]);
+  const [activeDM, setActiveDM] = useState<{ userId: string; name: string; avatar: string } | null>(null);
+  const [dmMessages, setDmMessages] = useState<DMMessage[]>([]);
+  const [dmLoading, setDmLoading] = useState(false);
 
   const friends = apiFriends ?? propFriends;
 
@@ -123,6 +130,13 @@ export const Social: React.FC<SocialProps> = ({
     } catch { /* non-critical */ }
   }, [userRole]);
 
+  const fetchConversations = useCallback(async () => {
+    try {
+      const res = await getConversations();
+      setConversations(res.conversations);
+    } catch { /* non-critical */ }
+  }, []);
+
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
@@ -134,6 +148,10 @@ export const Social: React.FC<SocialProps> = ({
   useEffect(() => {
     fetchTeamInvites();
   }, [fetchTeamInvites]);
+
+  useEffect(() => {
+    fetchConversations();
+  }, [fetchConversations]);
 
   // ── Friend handlers ──────────────────────────────────────────────────────
 
@@ -251,6 +269,59 @@ export const Social: React.FC<SocialProps> = ({
     }
   };
 
+  // ── DM handlers ──────────────────────────────────────────────────────────
+
+  const handleOpenDM = useCallback(async (dmUserId: string, name: string, avatar: string) => {
+    setActiveDM({ userId: dmUserId, name, avatar });
+    setDmLoading(true);
+    try {
+      const res = await getDMs(dmUserId);
+      setDmMessages(res.messages);
+    } catch { /* non-critical */ }
+    finally { setDmLoading(false); }
+  }, []);
+
+  const handleSendDM = useCallback(async (content: string) => {
+    if (!activeDM) return;
+    try {
+      const res = await sendDM(activeDM.userId, content);
+      setDmMessages(prev => [...prev, res.message]);
+      setConversations(prev => {
+        const existing = prev.find(c => c.userId === activeDM.userId);
+        if (existing) {
+          return prev.map(c => c.userId === activeDM.userId
+            ? { ...c, lastMessage: content, lastAt: new Date().toISOString() }
+            : c);
+        }
+        return [...prev, {
+          userId: activeDM.userId, fullName: activeDM.name, avatar: activeDM.avatar,
+          lastMessage: content, lastAt: new Date().toISOString(), unreadCount: 0,
+        }];
+      });
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Failed to send message');
+    }
+  }, [activeDM]);
+
+  const handleAcceptMsgRequest = useCallback(async (dmUserId: string) => {
+    try {
+      await acceptMessageRequest(dmUserId);
+      setConversations(prev => prev.map(c => c.userId === dmUserId ? { ...c, isPending: false } : c));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Failed to accept message request');
+    }
+  }, []);
+
+  const handleDeclineMsgRequest = useCallback(async (dmUserId: string) => {
+    try {
+      await declineMessageRequest(dmUserId);
+      setConversations(prev => prev.filter(c => c.userId !== dmUserId));
+      if (activeDM?.userId === dmUserId) setActiveDM(null);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Failed to decline message request');
+    }
+  }, [activeDM]);
+
   return (
     <div className="min-h-screen bg-slate-50 pb-24 md:pt-20 font-inter">
       <div className="max-w-5xl mx-auto px-4 py-8">
@@ -312,6 +383,16 @@ export const Social: React.FC<SocialProps> = ({
             onDeclineJoinRequest={handleDeclineJoinRequest}
             onAcceptTeamInvite={handleAcceptTeamInvite}
             onDeclineTeamInvite={handleDeclineTeamInvite}
+            conversations={conversations}
+            activeDM={activeDM}
+            dmMessages={dmMessages}
+            dmLoading={dmLoading}
+            onOpenDM={handleOpenDM}
+            onCloseDM={() => setActiveDM(null)}
+            onSendDM={handleSendDM}
+            onAcceptMsgRequest={handleAcceptMsgRequest}
+            onDeclineMsgRequest={handleDeclineMsgRequest}
+            onViewProfile={(uid) => onViewProfile?.(uid)}
           />
         )}
       </div>
